@@ -4,8 +4,45 @@ Serve HTML and Markdown files with live reload, Mermaid diagram support, and inl
 
 ## Install
 
+Requires Python 3.13+.
+
+### Quick install (recommended)
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you don't have it:
+
 ```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Then install `serve`:
+
+```bash
+uv tool install git+https://github.com/ericbryant24/serve
+```
+
+This gives you the `serve` command globally. To update later:
+
+```bash
+uv tool install --force git+https://github.com/ericbryant24/serve
+```
+
+### With pip
+
+```bash
+pip install git+https://github.com/ericbryant24/serve
+```
+
+### From source
+
+```bash
+git clone https://github.com/ericbryant24/serve.git
+cd serve
 uv tool install -e .
+# or: pip install -e .
 ```
 
 ## Usage
