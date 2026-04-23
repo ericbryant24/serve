@@ -55,4 +55,4 @@ When CLI commands, flags, or behavior change, update all of these:
 3. **Skill file** at `~/.claude/skills/serve/SKILL.md`
 4. **This file** (Comment API / Commands sections above)
 
-Reinstall after changes: `uv tool install --force --from ~/Projects/tools/serve serve`
+Reinstall after changes: `uv tool install --force -e .`
