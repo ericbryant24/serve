@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import re
 
 # ---------------------------------------------------------------------------
 # Favicon generation — deterministic per-path emoji + color
@@ -395,12 +396,49 @@ _COMMENT_JS = """\
     return Math.floor(diff / 86400) + 'd ago';
   }
 
+  // --- Mermaid wait helper ---
+  function waitForMermaid(callback) {
+    if (document.querySelectorAll('pre.mermaid').length === 0) { callback(); return; }
+
+    // Re-query the live DOM each time — mermaid may replace elements.
+    function allRendered() {
+      var current = document.querySelectorAll('pre.mermaid');
+      if (current.length === 0) return true;
+      var pending = 0;
+      current.forEach(function(el) { if (!el.querySelector('svg')) pending++; });
+      return pending === 0;
+    }
+
+    if (allRendered()) { callback(); return; }
+
+    var called = false;
+    var pollId = null;
+    function done() {
+      if (called) return;
+      called = true;
+      if (pollId) clearInterval(pollId);
+      callback();
+    }
+
+    // Poll until mermaid renders or timeout.  A MutationObserver on the
+    // original NodeList can miss mutations when mermaid replaces elements,
+    // so polling the live DOM is the reliable approach.
+    pollId = setInterval(function() {
+      if (allRendered()) done();
+    }, 150);
+
+    // Hard timeout — apply highlights even if mermaid fails to load
+    setTimeout(done, 5000);
+  }
+
   // --- Init ---
   function init() {
     api('GET', '').then(function(res) {
       comments = res.comments || [];
-      applyHighlights();
-      updateBadge();
+      waitForMermaid(function() {
+        applyHighlights();
+        updateBadge();
+      });
     });
     setupSelectionListener();
   }
@@ -595,6 +633,54 @@ _COMMENT_JS = """\
     }
 
     var idx = fullText.indexOf(anchorText);
+    // Fallback: getSelection().toString() adds whitespace between block elements
+    // (tabs between table cells, newlines between paragraphs) that the
+    // TreeWalker text-node concatenation may represent differently (or not at
+    // all).  Try progressively looser matching.
+    if (idx === -1) {
+      // Collapse whitespace runs to a single space in both strings.
+      var normAnchor = anchorText.replace(/\\s+/g, ' ');
+      var normFull = fullText.replace(/\\s+/g, ' ');
+      var ni = normFull.indexOf(normAnchor);
+      if (ni !== -1) {
+        // Map normalized position back to original fullText.
+        // Build a map: for each char in normFull, the index in fullText.
+        var nfMap = [];
+        var fi = 0;
+        for (var ci = 0; ci < normFull.length; ci++) {
+          if (normFull[ci] === ' ' && /\\s/.test(fullText[fi])) {
+            nfMap.push(fi);
+            while (fi < fullText.length && /\\s/.test(fullText[fi])) fi++;
+          } else {
+            nfMap.push(fi);
+            fi++;
+          }
+        }
+        idx = nfMap[ni];
+        var endOrig = (ni + normAnchor.length < nfMap.length)
+          ? nfMap[ni + normAnchor.length]
+          : fullText.length;
+        anchorText = fullText.substring(idx, endOrig);
+      }
+    }
+    if (idx === -1) {
+      // Last resort: strip ALL whitespace from both and match by non-ws chars.
+      var sa = anchorText.replace(/\\s+/g, '');
+      if (sa.length > 0) {
+        var sf = '', sfMap = [];
+        for (var k = 0; k < fullText.length; k++) {
+          if (!/\\s/.test(fullText.charAt(k))) {
+            sfMap.push(k);
+            sf += fullText.charAt(k);
+          }
+        }
+        var si = sf.indexOf(sa);
+        if (si !== -1) {
+          idx = sfMap[si];
+          anchorText = fullText.substring(sfMap[si], sfMap[si + sa.length - 1] + 1);
+        }
+      }
+    }
     if (idx === -1) return false;
 
     // Find the text nodes that span this range
@@ -1249,6 +1335,75 @@ def wrap_markdown(
     return "".join(parts)
 
 
+_HTML_BLOCK_TAGS = (
+    "p", "h1", "h2", "h3", "h4", "h5", "h6",
+    "div", "section", "article", "header", "footer", "nav", "aside", "main",
+    "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+    "ul", "ol", "li", "dl", "dt", "dd",
+    "blockquote", "pre", "figure", "figcaption",
+    "details", "summary", "form", "fieldset",
+)
+
+_HTML_TAG_PAT = re.compile(
+    r"<(/?)(script|style|" + "|".join(_HTML_BLOCK_TAGS) + r")(\b[^>]*)>",
+    re.IGNORECASE,
+)
+
+
+def _annotate_html_source_lines(html: str) -> str:
+    """Add ``data-source-lines`` to block-level elements in raw HTML.
+
+    This gives the comment system positional anchoring in served HTML files
+    that would otherwise have no source-line metadata at all.  Each block
+    element gets ``data-source-lines="N-N"`` where *N* is the 1-indexed
+    line on which its opening tag appears.  Tags inside ``<script>`` or
+    ``<style>`` blocks are left untouched.
+    """
+    # Precompute newline offsets for O(log n) line-number lookups.
+    newline_offsets = [-1]
+    for i, ch in enumerate(html):
+        if ch == "\n":
+            newline_offsets.append(i)
+
+    def _offset_to_line(offset: int) -> int:
+        lo, hi = 0, len(newline_offsets) - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if newline_offsets[mid] < offset:
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return lo  # 1-indexed
+
+    skip_depth = 0
+    parts: list[str] = []
+    last_end = 0
+
+    for m in _HTML_TAG_PAT.finditer(html):
+        is_close = m.group(1) == "/"
+        tag = m.group(2).lower()
+        rest = m.group(3) or ""
+
+        if tag in ("script", "style"):
+            skip_depth = max(0, skip_depth - 1) if is_close else skip_depth + 1
+            continue
+
+        if skip_depth > 0 or is_close:
+            continue
+
+        if "data-source-lines" in rest:
+            continue
+
+        line_num = _offset_to_line(m.start())
+        # Insert the attribute just before the closing '>' of the opening tag.
+        parts.append(html[last_end : m.end() - 1])
+        parts.append(f' data-source-lines="{line_num}-{line_num}">')
+        last_end = m.end()
+
+    parts.append(html[last_end:])
+    return "".join(parts)
+
+
 def inject_reload_script(
     html: str,
     *,
@@ -1260,6 +1415,10 @@ def inject_reload_script(
     sidebar: optional (dir_name, current_path) to inject file navigation.
     favicon_path: path string used to deterministically pick a favicon.
     """
+    # Annotate block-level elements with source line numbers so the comment
+    # system can scope its text search to the correct element.
+    html = _annotate_html_source_lines(html)
+
     favicon_tag = _favicon_link(favicon_path)
 
     css_parts = [_COMMENT_CSS]

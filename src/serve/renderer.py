@@ -51,6 +51,23 @@ def _fence_renderer(
     return f"<pre{data_attr}><code>{escaped}</code></pre>\n"
 
 
+def _html_block_renderer(
+    self: RendererHTML, tokens: list, idx: int, options: dict, env: dict
+) -> str:
+    """Custom html_block renderer that preserves data-source-lines annotations.
+
+    The default html_block renderer outputs token.content directly, ignoring
+    any attributes set by core rules.  Wrap in a <div> so the annotation
+    survives into the rendered HTML.
+    """
+    token = tokens[idx]
+    source_lines = token.attrGet("data-source-lines")
+    content = token.content
+    if source_lines:
+        return f'<div data-source-lines="{source_lines}">{content}</div>\n'
+    return content
+
+
 def _source_lines_rule(state) -> None:
     """Core rule that adds data-source-lines attributes to block-level tokens."""
     for token in state.tokens:
@@ -67,6 +84,8 @@ def _build_parser() -> MarkdownIt:
     md.enable("strikethrough")
     # Override the fence renderer
     md.add_render_rule("fence", _fence_renderer)
+    # Wrap html_block output so data-source-lines is preserved
+    md.add_render_rule("html_block", _html_block_renderer)
     # Add source line annotations for comment anchoring
     md.core.ruler.push("source_lines", _source_lines_rule)
     return md
