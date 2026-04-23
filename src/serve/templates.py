@@ -1614,6 +1614,16 @@ _VIM_JS = """\
     // Key listener
     document.addEventListener('keydown', onKeyDown);
 
+    // Click to move cursor
+    document.addEventListener('click', function(e) {
+      if (!enabled) return;
+      if (e.target.closest('#vim-toggle, #vim-search-bar, .comment-popover, .comment-form, #comment-btn, .comment-count-badge, .comment-panel')) return;
+      var block = e.target.closest('[data-source-lines]');
+      if (!block) return;
+      var idx = blocks.indexOf(block);
+      if (idx >= 0) setCursor(idx, false);
+    });
+
     // If enabled from localStorage, activate
     if (enabled) {
       toggle.classList.add('on');
