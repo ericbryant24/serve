@@ -361,6 +361,131 @@ _COMMENT_CSS = """\
 """
 
 # ---------------------------------------------------------------------------
+# Vim mode CSS
+# ---------------------------------------------------------------------------
+
+_VIM_CSS = """
+    /* Vim cursor — highlight on the focused block */
+    .vim-cursor {
+      outline: 2px solid #3b82f6;
+      outline-offset: 2px;
+      border-radius: 3px;
+      transition: outline-color 0.15s;
+    }
+    /* Visual mode selection */
+    .vim-visual {
+      background: rgba(59, 130, 246, 0.12) !important;
+      outline: 2px solid rgba(59, 130, 246, 0.4);
+      outline-offset: 1px;
+      border-radius: 3px;
+    }
+    /* Mode indicator — bottom-left status bar */
+    #vim-indicator {
+      position: fixed;
+      bottom: 8px;
+      left: 12px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 4px;
+      z-index: 10000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      color: #e2e8f0;
+      background: #1e293b;
+      letter-spacing: 0.5px;
+    }
+    #vim-indicator.active {
+      opacity: 1;
+    }
+    #vim-indicator.visual {
+      background: #1e40af;
+    }
+    #vim-indicator.search {
+      background: #854d0e;
+    }
+    /* Toggle button — near the comment badge */
+    #vim-toggle {
+      position: fixed;
+      bottom: 62px;
+      right: 20px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #6b7280;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: all 0.15s;
+    }
+    #vim-toggle:hover {
+      border-color: #3b82f6;
+      color: #3b82f6;
+    }
+    #vim-toggle.on {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-color: #1e293b;
+    }
+    /* Search bar — bottom of screen */
+    #vim-search-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 14px;
+      padding: 6px 12px;
+      display: none;
+      z-index: 10001;
+      align-items: center;
+    }
+    #vim-search-bar.open {
+      display: flex;
+    }
+    #vim-search-bar .prompt {
+      color: #94a3b8;
+      margin-right: 4px;
+    }
+    #vim-search-bar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #e2e8f0;
+      font: inherit;
+      outline: none;
+    }
+    #vim-search-bar .count {
+      color: #94a3b8;
+      margin-left: 12px;
+      font-size: 12px;
+    }
+    /* Search match highlights */
+    .vim-search-match {
+      background: rgba(234, 179, 8, 0.3) !important;
+      border-radius: 2px;
+    }
+    .vim-search-current {
+      background: rgba(234, 179, 8, 0.6) !important;
+      outline: 2px solid #eab308;
+      outline-offset: 1px;
+      border-radius: 2px;
+    }
+"""
+
+# ---------------------------------------------------------------------------
 # Comment JavaScript
 # ---------------------------------------------------------------------------
 
@@ -536,7 +661,7 @@ _COMMENT_JS = """\
     ta.focus();
 
     ta.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') { closePopover(); }
+      if (e.key === 'Escape') { closePopover(); e.stopPropagation(); }
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         submitComment(selInfo, ta.value.trim(), parentId);
       }
@@ -625,9 +750,20 @@ _COMMENT_JS = """\
     var walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT);
     var textNodes = [];
     var fullText = '';
+    var inTable = searchRoot.closest ? !!searchRoot.closest('table') : false;
+    if (!inTable) inTable = !!searchRoot.querySelector('table');
+    var lastCell = undefined;  // sentinel: undefined = first node
     while (walker.nextNode()) {
       var n = walker.currentNode;
       if (n.parentElement.closest('mark.comment-highlight, .comment-popover, .comment-form, .orphaned-comments, script, style')) continue;
+      // Insert a boundary between table cells so matches can't span cells
+      if (inTable) {
+        var cell = n.parentElement.closest('td, th');
+        if (lastCell !== undefined && cell !== lastCell) {
+          fullText += '\\x00';  // null char as unmatchable boundary
+        }
+        lastCell = cell;
+      }
       textNodes.push({ node: n, start: fullText.length });
       fullText += n.textContent;
     }
@@ -948,11 +1084,564 @@ _COMMENT_JS = """\
     });
   }
 
+  // Expose openCommentForm for vim mode integration
+  window.__serveOpenCommentForm = function(selInfo, parentId) {
+    openCommentForm(selInfo, parentId);
+  };
+
   // Run on load
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() { init(); setupPanel(); });
   } else {
     init(); setupPanel();
+  }
+})();"""
+
+# ---------------------------------------------------------------------------
+# Vim mode JavaScript
+# ---------------------------------------------------------------------------
+
+_VIM_JS = """\
+(function() {
+  // --- State ---
+  var enabled = localStorage.getItem('serve-vim-mode') === '1';
+  var mode = 'normal';  // 'normal' | 'visual' | 'search'
+  var blocks = [];
+  var cursorIdx = -1;
+  var selStart = -1;
+  var selEnd = -1;
+  var pendingG = false;  // for gg
+  var pendingZ = false;  // for zz
+  var searchQuery = '';
+  var searchMarks = [];
+  var searchIdx = -1;
+
+  // --- DOM elements (created on init) ---
+  var indicator, toggle, searchBar, searchInput, searchCount;
+
+  // --- Collect navigable blocks ---
+  function collectBlocks() {
+    blocks = Array.from(document.querySelectorAll('[data-source-lines]'));
+    // Filter out blocks nested inside other blocks (keep leaf-level or meaningful containers)
+    // Keep all — they form a flat navigation list
+  }
+
+  // --- Cursor ---
+  function setCursor(idx, scroll) {
+    if (idx < 0 || idx >= blocks.length) return;
+    // Remove old cursor
+    if (cursorIdx >= 0 && cursorIdx < blocks.length) {
+      blocks[cursorIdx].classList.remove('vim-cursor');
+    }
+    cursorIdx = idx;
+    blocks[cursorIdx].classList.add('vim-cursor');
+    if (scroll !== false) {
+      blocks[cursorIdx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // Ensure some margin above/below
+      var rect = blocks[cursorIdx].getBoundingClientRect();
+      if (rect.top < 80) window.scrollBy({ top: rect.top - 80, behavior: 'smooth' });
+      if (rect.bottom > window.innerHeight - 40) window.scrollBy({ top: rect.bottom - window.innerHeight + 40, behavior: 'smooth' });
+    }
+    updateIndicator();
+  }
+
+  function moveCursor(delta) {
+    var next = cursorIdx + delta;
+    if (next < 0) next = 0;
+    if (next >= blocks.length) next = blocks.length - 1;
+    setCursor(next);
+  }
+
+  // --- Visual selection ---
+  function clearVisual() {
+    blocks.forEach(function(b) { b.classList.remove('vim-visual'); });
+    selStart = -1;
+    selEnd = -1;
+  }
+
+  function enterVisual() {
+    mode = 'visual';
+    selStart = cursorIdx;
+    selEnd = cursorIdx;
+    applyVisual();
+    updateIndicator();
+  }
+
+  function extendVisual(delta) {
+    selEnd += delta;
+    if (selEnd < 0) selEnd = 0;
+    if (selEnd >= blocks.length) selEnd = blocks.length - 1;
+    setCursor(selEnd);
+    applyVisual();
+  }
+
+  function applyVisual() {
+    blocks.forEach(function(b) { b.classList.remove('vim-visual'); });
+    var lo = Math.min(selStart, selEnd);
+    var hi = Math.max(selStart, selEnd);
+    for (var i = lo; i <= hi; i++) {
+      blocks[i].classList.add('vim-visual');
+    }
+  }
+
+  function exitVisual() {
+    clearVisual();
+    mode = 'normal';
+    updateIndicator();
+  }
+
+  // --- Comment from visual selection ---
+  function commentFromVisual() {
+    if (selStart < 0 || selEnd < 0) return;
+    var lo = Math.min(selStart, selEnd);
+    var hi = Math.max(selStart, selEnd);
+
+    // Check if selection involves table elements
+    var inTable = false;
+    for (var ti = lo; ti <= hi; ti++) {
+      var tag = blocks[ti].tagName;
+      if (tag === 'TABLE' || tag === 'TR' || tag === 'TD' || tag === 'TH' || tag === 'THEAD' || tag === 'TBODY' || blocks[ti].closest('table')) {
+        inTable = true;
+        break;
+      }
+    }
+
+    // Gather anchor text — for tables, use the first cell's text to avoid
+    // cross-cell highlights that break table layout
+    var anchorText;
+    var anchorBlock;
+    if (inTable) {
+      anchorBlock = blocks[lo];
+      // If the block is a row/table, anchor to the first cell only
+      var firstCell = anchorBlock.querySelector('td, th');
+      anchorText = firstCell ? firstCell.textContent.trim() : anchorBlock.textContent.trim();
+      if (firstCell) anchorBlock = firstCell;
+    } else {
+      var textParts = [];
+      for (var i = lo; i <= hi; i++) {
+        textParts.push(blocks[i].textContent.trim());
+      }
+      anchorText = textParts.join('\\n');
+      anchorBlock = blocks[lo];
+    }
+
+    // Find source lines span
+    var lineStart = null, lineEnd = null;
+    for (var j = lo; j <= hi; j++) {
+      var sl = blocks[j].getAttribute('data-source-lines');
+      if (sl) {
+        var parts = sl.split('-');
+        var s = parseInt(parts[0], 10), e = parseInt(parts[1], 10);
+        if (lineStart === null || s < lineStart) lineStart = s;
+        if (lineEnd === null || e > lineEnd) lineEnd = e;
+      }
+    }
+
+    // Build selInfo matching the comment system's expected structure
+    var selInfo = {
+      anchorText: anchorText,
+      blockText: anchorBlock.textContent.trim(),
+      sourceLines: (lineStart !== null) ? { start: lineStart, end: lineEnd } : null,
+      block: anchorBlock
+    };
+
+    // Clear visual before opening form
+    clearVisual();
+    mode = 'normal';
+    updateIndicator();
+
+    // Call the comment system's openCommentForm if available
+    if (typeof window.__serveOpenCommentForm === 'function') {
+      window.__serveOpenCommentForm(selInfo);
+    }
+  }
+
+  // --- Search ---
+  function openSearch() {
+    mode = 'search';
+    searchBar.classList.add('open');
+    searchInput.value = searchQuery;
+    searchInput.focus();
+    searchInput.select();
+    updateIndicator();
+  }
+
+  function closeSearch() {
+    searchBar.classList.remove('open');
+    clearSearchMarks();
+    mode = 'normal';
+    searchInput.blur();
+    updateIndicator();
+  }
+
+  function clearSearchMarks() {
+    searchMarks.forEach(function(mark) {
+      var parent = mark.parentNode;
+      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+      parent.removeChild(mark);
+      parent.normalize();
+    });
+    searchMarks = [];
+    searchIdx = -1;
+    searchCount.textContent = '';
+  }
+
+  function executeSearch(query) {
+    clearSearchMarks();
+    searchQuery = query;
+    if (!query) return;
+
+    // Walk text nodes and find all occurrences
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    var matches = [];
+    while (walker.nextNode()) {
+      var node = walker.currentNode;
+      if (node.parentElement.closest('#vim-search-bar, #vim-indicator, #vim-toggle, .comment-popover, .comment-form, script, style, .orphaned-comments')) continue;
+      var text = node.textContent;
+      var lowerText = text.toLowerCase();
+      var lowerQuery = query.toLowerCase();
+      var idx = 0;
+      while ((idx = lowerText.indexOf(lowerQuery, idx)) !== -1) {
+        matches.push({ node: node, offset: idx, length: query.length });
+        idx += query.length;
+      }
+    }
+
+    if (matches.length === 0) {
+      searchCount.textContent = 'No matches';
+      return;
+    }
+
+    // Wrap matches in reverse order to preserve offsets
+    for (var i = matches.length - 1; i >= 0; i--) {
+      var m = matches[i];
+      var range = document.createRange();
+      range.setStart(m.node, m.offset);
+      range.setEnd(m.node, m.offset + m.length);
+      var mark = document.createElement('span');
+      mark.className = 'vim-search-match';
+      try {
+        range.surroundContents(mark);
+        searchMarks.unshift(mark);
+      } catch(e) {
+        // Cross-element boundary — skip
+      }
+    }
+
+    if (searchMarks.length > 0) {
+      searchIdx = 0;
+      highlightCurrentMatch();
+    }
+  }
+
+  function highlightCurrentMatch() {
+    searchMarks.forEach(function(m, i) {
+      m.className = (i === searchIdx) ? 'vim-search-current' : 'vim-search-match';
+    });
+    if (searchIdx >= 0 && searchIdx < searchMarks.length) {
+      searchMarks[searchIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Move cursor to the block containing this match
+      var el = searchMarks[searchIdx].closest('[data-source-lines]');
+      if (el) {
+        var bi = blocks.indexOf(el);
+        if (bi >= 0) setCursor(bi, false);
+      }
+      searchCount.textContent = (searchIdx + 1) + '/' + searchMarks.length;
+    }
+  }
+
+  function nextMatch(direction) {
+    if (searchMarks.length === 0) {
+      // Re-execute last search if we have a query
+      if (searchQuery) {
+        executeSearch(searchQuery);
+        if (searchMarks.length > 0) highlightCurrentMatch();
+      }
+      return;
+    }
+    searchIdx += direction;
+    if (searchIdx >= searchMarks.length) searchIdx = 0;
+    if (searchIdx < 0) searchIdx = searchMarks.length - 1;
+    highlightCurrentMatch();
+  }
+
+  // --- Heading navigation ---
+  function nextHeading(direction) {
+    var headingTags = ['H1','H2','H3','H4','H5','H6'];
+    var i = cursorIdx + direction;
+    while (i >= 0 && i < blocks.length) {
+      if (headingTags.indexOf(blocks[i].tagName) >= 0) {
+        setCursor(i);
+        return;
+      }
+      i += direction;
+    }
+  }
+
+  // --- Half-page jump ---
+  function halfPage(direction) {
+    // Count how many blocks fit in half the viewport
+    var vh = window.innerHeight / 2;
+    var count = 0, h = 0;
+    var i = cursorIdx;
+    while (i >= 0 && i < blocks.length) {
+      h += blocks[i].getBoundingClientRect().height;
+      count++;
+      if (h >= vh) break;
+      i += direction;
+    }
+    if (count < 1) count = 5;
+    moveCursor(direction * count);
+  }
+
+  // --- Indicator ---
+  function updateIndicator() {
+    if (!enabled) {
+      indicator.classList.remove('active', 'visual', 'search');
+      return;
+    }
+    indicator.classList.add('active');
+    indicator.classList.remove('visual', 'search');
+    if (mode === 'visual') {
+      indicator.textContent = '-- VISUAL --';
+      indicator.classList.add('visual');
+    } else if (mode === 'search') {
+      indicator.textContent = '-- SEARCH --';
+      indicator.classList.add('search');
+    } else {
+      indicator.textContent = '-- NORMAL --';
+    }
+  }
+
+  // --- Guard: should we handle this key? ---
+  function shouldHandle(e) {
+    if (!enabled) return false;
+    // Don't intercept when typing in inputs
+    var tag = document.activeElement.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return false;
+    if (document.activeElement.isContentEditable) return false;
+    // Allow Ctrl-d/Ctrl-u, but block other modifier combos
+    if (e.altKey || e.metaKey) return false;
+    if (e.ctrlKey && e.key !== 'd' && e.key !== 'u') return false;
+    return true;
+  }
+
+  // --- Keydown handler ---
+  function onKeyDown(e) {
+    // Search mode input is handled separately
+    if (mode === 'search' && document.activeElement === searchInput) return;
+
+    if (!shouldHandle(e)) {
+      // Special: Escape while unfocused toggles vim mode on
+      if (e.key === 'Escape' && !enabled) {
+        var tag = document.activeElement.tagName;
+        if (tag !== 'TEXTAREA' && tag !== 'INPUT' && tag !== 'SELECT' && !document.activeElement.isContentEditable) {
+          toggleVim();
+          e.preventDefault();
+        }
+      }
+      return;
+    }
+
+    var key = e.key;
+    // Normalize: some browsers report lowercase key even with shiftKey held
+    if (e.shiftKey && key.length === 1) {
+      if (key >= 'a' && key <= 'z') key = key.toUpperCase();
+      else {
+        var shiftMap = {'[':'{', ']':'}', '/':'?'};
+        if (shiftMap[key]) key = shiftMap[key];
+      }
+    }
+
+    // --- Normal mode ---
+    if (mode === 'normal') {
+      if (key === 'j') { moveCursor(1); e.preventDefault(); }
+      else if (key === 'k') { moveCursor(-1); e.preventDefault(); }
+      else if (key === 'g') {
+        if (pendingG) { setCursor(0); pendingG = false; e.preventDefault(); }
+        else { pendingG = true; setTimeout(function() { pendingG = false; }, 500); e.preventDefault(); }
+      }
+      else if (key === 'G') { setCursor(blocks.length - 1); e.preventDefault(); }
+      else if (key === '{') { nextHeading(-1); e.preventDefault(); }
+      else if (key === '}') { nextHeading(1); e.preventDefault(); }
+      else if (key === 'd' && e.ctrlKey) { halfPage(1); e.preventDefault(); }
+      else if (key === 'u' && e.ctrlKey) { halfPage(-1); e.preventDefault(); }
+      else if (key === 'v') { enterVisual(); e.preventDefault(); }
+      else if (key === 'V') {
+        // Line-wise visual: select current block, immediately open comment
+        enterVisual();
+        e.preventDefault();
+      }
+      else if (key === '/') { openSearch(); e.preventDefault(); }
+      else if (key === 'n') { nextMatch(1); e.preventDefault(); }
+      else if (key === 'N') { nextMatch(-1); e.preventDefault(); }
+      else if (key === 'H') {
+        // Jump to first visible block
+        for (var hi = 0; hi < blocks.length; hi++) {
+          var r = blocks[hi].getBoundingClientRect();
+          if (r.top >= 0) { setCursor(hi); break; }
+        }
+        e.preventDefault();
+      }
+      else if (key === 'M') {
+        // Jump to block nearest middle of viewport
+        var mid = window.innerHeight / 2;
+        var bestIdx = cursorIdx, bestDist = Infinity;
+        for (var mi = 0; mi < blocks.length; mi++) {
+          var mr = blocks[mi].getBoundingClientRect();
+          var d = Math.abs(mr.top + mr.height / 2 - mid);
+          if (d < bestDist) { bestDist = d; bestIdx = mi; }
+        }
+        setCursor(bestIdx);
+        e.preventDefault();
+      }
+      else if (key === 'L') {
+        // Jump to last visible block
+        for (var li = blocks.length - 1; li >= 0; li--) {
+          var lr = blocks[li].getBoundingClientRect();
+          if (lr.bottom <= window.innerHeight) { setCursor(li); break; }
+        }
+        e.preventDefault();
+      }
+      else if (key === 'z') {
+        if (pendingZ) {
+          // zz — center cursor in viewport
+          if (cursorIdx >= 0 && cursorIdx < blocks.length) {
+            blocks[cursorIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          pendingZ = false;
+        } else {
+          pendingZ = true;
+          setTimeout(function() { pendingZ = false; }, 500);
+        }
+        e.preventDefault();
+      }
+      else if (key === 'Escape') {
+        // Double-escape exits vim mode
+        if (searchQuery) {
+          clearSearchMarks();
+          searchQuery = '';
+        } else {
+          toggleVim();
+        }
+        e.preventDefault();
+      }
+      return;
+    }
+
+    // --- Visual mode ---
+    if (mode === 'visual') {
+      if (key === 'j') { extendVisual(1); e.preventDefault(); }
+      else if (key === 'k') { extendVisual(-1); e.preventDefault(); }
+      else if (key === 'G') { selEnd = blocks.length - 1; setCursor(selEnd); applyVisual(); e.preventDefault(); }
+      else if (key === 'g') {
+        if (pendingG) { selEnd = 0; setCursor(0); applyVisual(); pendingG = false; e.preventDefault(); }
+        else { pendingG = true; setTimeout(function() { pendingG = false; }, 500); e.preventDefault(); }
+      }
+      else if (key === 'c') { commentFromVisual(); e.preventDefault(); }
+      else if (key === 'Escape' || key === 'v') { exitVisual(); e.preventDefault(); }
+      return;
+    }
+  }
+
+  // --- Search input handler ---
+  function onSearchKeyDown(e) {
+    if (e.key === 'Enter') {
+      var q = searchInput.value;
+      searchBar.classList.remove('open');
+      mode = 'normal';
+      searchInput.blur();
+      executeSearch(q);
+      updateIndicator();
+      e.preventDefault();
+    } else if (e.key === 'Escape') {
+      closeSearch();
+      e.preventDefault();
+    }
+  }
+
+  // --- Toggle ---
+  function toggleVim() {
+    enabled = !enabled;
+    localStorage.setItem('serve-vim-mode', enabled ? '1' : '0');
+    toggle.classList.toggle('on', enabled);
+    if (enabled) {
+      collectBlocks();
+      if (blocks.length > 0 && cursorIdx < 0) setCursor(0, false);
+      updateIndicator();
+    } else {
+      // Clean up
+      if (cursorIdx >= 0 && cursorIdx < blocks.length) {
+        blocks[cursorIdx].classList.remove('vim-cursor');
+      }
+      cursorIdx = -1;
+      clearVisual();
+      closeSearch();
+      mode = 'normal';
+      indicator.classList.remove('active');
+    }
+  }
+
+  // --- Init ---
+  function initVim() {
+    // Create indicator
+    indicator = document.createElement('div');
+    indicator.id = 'vim-indicator';
+    indicator.textContent = '-- NORMAL --';
+    document.body.appendChild(indicator);
+
+    // Create toggle button
+    toggle = document.createElement('button');
+    toggle.id = 'vim-toggle';
+    toggle.textContent = 'Vi';
+    toggle.title = 'Toggle vim mode (Escape)';
+    toggle.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleVim();
+    });
+    document.body.appendChild(toggle);
+
+    // Create search bar
+    searchBar = document.createElement('div');
+    searchBar.id = 'vim-search-bar';
+    searchBar.innerHTML = '<span class="prompt">/</span><input type="text" autocomplete="off" spellcheck="false"><span class="count"></span>';
+    document.body.appendChild(searchBar);
+    searchInput = searchBar.querySelector('input');
+    searchCount = searchBar.querySelector('.count');
+    searchInput.addEventListener('keydown', onSearchKeyDown);
+
+    // Key listener
+    document.addEventListener('keydown', onKeyDown);
+
+    // If enabled from localStorage, activate
+    if (enabled) {
+      toggle.classList.add('on');
+      collectBlocks();
+      if (blocks.length > 0) setCursor(0, false);
+      updateIndicator();
+    }
+
+    // Re-collect blocks on page mutation (for mermaid, dynamic content)
+    var observer = new MutationObserver(function() {
+      var oldLen = blocks.length;
+      collectBlocks();
+      if (enabled && blocks.length !== oldLen && cursorIdx >= blocks.length) {
+        cursorIdx = blocks.length - 1;
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // --- Expose openCommentForm bridge ---
+  // The comment JS defines openCommentForm locally. We expose a global hook
+  // that the comment JS will call to register itself.
+  // This is set up via a global, and the comment JS patches it.
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initVim);
+  } else {
+    initVim();
   }
 })();"""
 
@@ -1320,6 +2009,7 @@ def wrap_markdown(
     """
     parts = [_HEAD_TEMPLATE.format(title=title, pygments_css=pygments_css, favicon=_favicon_link(favicon_path))]
     parts.append(_COMMENT_CSS)
+    parts.append(_VIM_CSS)
     if sidebar:
         parts.append(_SIDEBAR_CSS)
     parts.append(_HEAD_CLOSE)
@@ -1329,6 +2019,7 @@ def wrap_markdown(
     parts.append(_COMMENT_HTML)
     parts.append("<script>" + RELOAD_SCRIPT + "</script>\n")
     parts.append("<script>" + _COMMENT_JS + "</script>\n")
+    parts.append("<script>" + _VIM_JS + "</script>\n")
     if sidebar:
         parts.append("<script>" + _SIDEBAR_JS + "</script>\n")
     parts.append(_BODY_CLOSE)
@@ -1421,7 +2112,7 @@ def inject_reload_script(
 
     favicon_tag = _favicon_link(favicon_path)
 
-    css_parts = [_COMMENT_CSS]
+    css_parts = [_COMMENT_CSS, _VIM_CSS]
     if sidebar:
         css_parts.append(_SIDEBAR_CSS)
     css_tag = "<style>" + "\n".join(css_parts) + "</style>"
@@ -1432,6 +2123,7 @@ def inject_reload_script(
     script_parts.append(_COMMENT_HTML)
     script_parts.append("<script>" + RELOAD_SCRIPT + "</script>\n")
     script_parts.append("<script>" + _COMMENT_JS + "</script>")
+    script_parts.append("<script>" + _VIM_JS + "</script>")
     if sidebar:
         script_parts.append("<script>" + _SIDEBAR_JS + "</script>")
     scripts = "\n".join(script_parts)
