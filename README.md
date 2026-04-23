@@ -1,6 +1,6 @@
 # serve
 
-Serve HTML and Markdown files with live reload, Mermaid diagram support, and inline comments. Serve entire directories with a sidebar for file navigation.
+A local document server with live reload, inline comments, and a sidebar for navigating directories. Renders markdown and HTML with full styling, syntax-highlights code files, embeds PDFs and images, and handles everything else with a download page.
 
 ## Install
 
