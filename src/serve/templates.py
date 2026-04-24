@@ -486,6 +486,210 @@ _VIM_CSS = """
 """
 
 # ---------------------------------------------------------------------------
+# Zoom / content-width control
+# ---------------------------------------------------------------------------
+
+_ZOOM_CSS = """\
+    /* Zoom control — bottom-right, above vim toggle */
+    #zoom-control {
+      position: fixed;
+      bottom: 100px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    #zoom-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #6b7280;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: all 0.15s;
+    }
+    #zoom-btn:hover {
+      border-color: #3b82f6;
+      color: #3b82f6;
+    }
+    #zoom-panel {
+      display: none;
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      padding: 12px 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+      flex-direction: column;
+      gap: 10px;
+      width: 180px;
+      position: absolute;
+      bottom: 40px;
+      right: 0;
+    }
+    #zoom-panel.open {
+      display: flex;
+    }
+    .zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .zoom-row-label {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      color: #24292e;
+      width: 40px;
+      flex-shrink: 0;
+    }
+    .zoom-row input[type="range"] {
+      flex: 1;
+      height: 4px;
+      accent-color: #3b82f6;
+      cursor: pointer;
+    }
+    .zoom-row-value {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 10px;
+      color: #656d76;
+      width: 28px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+"""
+
+_ZOOM_JS = """\
+(function() {
+  var WIDTH_KEY = 'serve-zoom';
+  var FONT_KEY = 'serve-font-zoom';
+  var WIDTH_STEPS = [
+    { label: '48', value: '48em' },
+    { label: '60', value: '60em' },
+    { label: '72', value: '72em' },
+    { label: '90', value: '90em' },
+    { label: '\\u221E', value: 'none' },
+  ];
+  var FONT_STEPS = [80, 90, 100, 110, 125, 150];
+  var DEFAULT_WIDTH = 0;
+  var DEFAULT_FONT = 2;  // 100%
+
+  function loadInt(key, def, max) {
+    try {
+      var v = parseInt(localStorage.getItem(key), 10);
+      return (v >= 0 && v < max) ? v : def;
+    } catch(e) { return def; }
+  }
+  function save(key, v) {
+    try { localStorage.setItem(key, String(v)); } catch(e) {}
+  }
+
+  function applyWidth(step) {
+    document.body.style.maxWidth = WIDTH_STEPS[step].value;
+  }
+  function applyFont(step) {
+    document.body.style.fontSize = FONT_STEPS[step] + '%';
+  }
+
+  // Build UI
+  var wrap = document.createElement('div');
+  wrap.id = 'zoom-control';
+
+  var panel = document.createElement('div');
+  panel.id = 'zoom-panel';
+
+  // Font size row
+  var fontRow = document.createElement('div');
+  fontRow.className = 'zoom-row';
+  var fontLbl = document.createElement('span');
+  fontLbl.className = 'zoom-row-label';
+  fontLbl.textContent = 'Zoom';
+  var fontSlider = document.createElement('input');
+  fontSlider.type = 'range';
+  fontSlider.min = '0';
+  fontSlider.max = String(FONT_STEPS.length - 1);
+  fontSlider.step = '1';
+  var fontVal = document.createElement('span');
+  fontVal.className = 'zoom-row-value';
+  fontRow.appendChild(fontLbl);
+  fontRow.appendChild(fontSlider);
+  fontRow.appendChild(fontVal);
+
+  // Width row
+  var widthRow = document.createElement('div');
+  widthRow.className = 'zoom-row';
+  var widthLbl = document.createElement('span');
+  widthLbl.className = 'zoom-row-label';
+  widthLbl.textContent = 'Width';
+  var widthSlider = document.createElement('input');
+  widthSlider.type = 'range';
+  widthSlider.min = '0';
+  widthSlider.max = String(WIDTH_STEPS.length - 1);
+  widthSlider.step = '1';
+  var widthVal = document.createElement('span');
+  widthVal.className = 'zoom-row-value';
+  widthRow.appendChild(widthLbl);
+  widthRow.appendChild(widthSlider);
+  widthRow.appendChild(widthVal);
+
+  panel.appendChild(fontRow);
+  panel.appendChild(widthRow);
+
+  var btn = document.createElement('button');
+  btn.id = 'zoom-btn';
+  btn.title = 'Adjust zoom and width';
+  btn.innerHTML = '\\uD83D\\uDD0D';  // magnifying glass
+
+  wrap.appendChild(panel);
+  wrap.appendChild(btn);
+  document.body.appendChild(wrap);
+
+  // Init state
+  var curWidth = loadInt(WIDTH_KEY, DEFAULT_WIDTH, WIDTH_STEPS.length);
+  var curFont = loadInt(FONT_KEY, DEFAULT_FONT, FONT_STEPS.length);
+  widthSlider.value = String(curWidth);
+  widthVal.textContent = WIDTH_STEPS[curWidth].label;
+  applyWidth(curWidth);
+  fontSlider.value = String(curFont);
+  fontVal.textContent = FONT_STEPS[curFont] + '%';
+  applyFont(curFont);
+
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    panel.classList.toggle('open');
+  });
+
+  widthSlider.addEventListener('input', function() {
+    var step = parseInt(widthSlider.value, 10);
+    widthVal.textContent = WIDTH_STEPS[step].label;
+    applyWidth(step);
+    save(WIDTH_KEY, step);
+  });
+
+  fontSlider.addEventListener('input', function() {
+    var step = parseInt(fontSlider.value, 10);
+    fontVal.textContent = FONT_STEPS[step] + '%';
+    applyFont(step);
+    save(FONT_KEY, step);
+  });
+
+  // Close panel on outside click
+  document.addEventListener('click', function(e) {
+    if (!wrap.contains(e.target)) {
+      panel.classList.remove('open');
+    }
+  });
+})();
+"""
+
+# ---------------------------------------------------------------------------
 # Comment JavaScript
 # ---------------------------------------------------------------------------
 
@@ -2020,6 +2224,7 @@ def wrap_markdown(
     parts = [_HEAD_TEMPLATE.format(title=title, pygments_css=pygments_css, favicon=_favicon_link(favicon_path))]
     parts.append(_COMMENT_CSS)
     parts.append(_VIM_CSS)
+    parts.append(_ZOOM_CSS)
     if sidebar:
         parts.append(_SIDEBAR_CSS)
     parts.append(_HEAD_CLOSE)
@@ -2030,6 +2235,7 @@ def wrap_markdown(
     parts.append("<script>" + RELOAD_SCRIPT + "</script>\n")
     parts.append("<script>" + _COMMENT_JS + "</script>\n")
     parts.append("<script>" + _VIM_JS + "</script>\n")
+    parts.append("<script>" + _ZOOM_JS + "</script>\n")
     if sidebar:
         parts.append("<script>" + _SIDEBAR_JS + "</script>\n")
     parts.append(_BODY_CLOSE)

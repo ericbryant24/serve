@@ -141,6 +141,20 @@ class Server:
         if request.query.get("raw") == "1":
             return web.FileResponse(file_path)
 
+        # Embedded resource detection: when an <img>, <video>, <audio>, or
+        # CSS url() requests a file, the browser sends an Accept header that
+        # does NOT include text/html.  Serve the raw file in that case so
+        # embedded images (and other assets) work inside rendered pages.
+        accept = request.headers.get("Accept", "")
+        _EMBEDDABLE_EXTENSIONS = {
+            ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico",
+            ".mp4", ".webm", ".ogg", ".mp3", ".wav", ".flac",
+            ".woff", ".woff2", ".ttf", ".eot",
+            ".css", ".js",
+        }
+        if suffix in _EMBEDDABLE_EXTENSIONS and "text/html" not in accept:
+            return web.FileResponse(file_path)
+
         # Markdown
         if suffix == ".md":
             html = render(file_path, sidebar=sidebar)
