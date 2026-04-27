@@ -20,7 +20,7 @@ from serve.renderer import (
     render_pdf,
 )
 from serve.templates import inject_reload_script
-from serve.watcher import watch, watch_directory
+from serve.watcher import watch, watch_comments, watch_directory
 
 
 # ---------------------------------------------------------------------------
@@ -88,11 +88,13 @@ class Server:
             self.base_dir = file_path.resolve()
             self._dir_name = self.base_dir.name or str(self.base_dir)
             self._doc_id: str | None = None
+            self._favicon_seed = str(self.base_dir)
         else:
             self.file_path = file_path.resolve()
             self.base_dir = self.file_path.parent
             self._dir_name = None
             self._doc_id = get_document_id(self.file_path)
+            self._favicon_seed = str(self.file_path)
 
         self._comment_store: CommentStore | None = None
         # Per-file comment stores for directory mode
@@ -105,10 +107,10 @@ class Server:
     async def _handle_page(self, request: web.Request) -> web.Response:
         """Serve the HTML page (single-file mode)."""
         if self.mode == "markdown":
-            html = render(self.file_path)
+            html = render(self.file_path, favicon_path=self._favicon_seed)
         else:
             html = self.file_path.read_text(encoding="utf-8")
-            html = inject_reload_script(html, favicon_path=str(self.file_path))
+            html = inject_reload_script(html, favicon_path=self._favicon_seed)
         return web.Response(text=html, content_type="text/html")
 
     # ------------------------------------------------------------------
@@ -157,40 +159,40 @@ class Server:
 
         # Markdown
         if suffix == ".md":
-            html = render(file_path, sidebar=sidebar)
+            html = render(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
             return web.Response(text=html, content_type="text/html")
 
         # HTML
         if suffix in {".html", ".htm"}:
             html = file_path.read_text(encoding="utf-8")
-            html = inject_reload_script(html, sidebar=sidebar, favicon_path=str(file_path))
+            html = inject_reload_script(html, sidebar=sidebar, favicon_path=self._favicon_seed)
             return web.Response(text=html, content_type="text/html")
 
         # PDF
         if suffix == ".pdf":
-            html = render_pdf(file_path, rel_path, sidebar=sidebar)
+            html = render_pdf(file_path, rel_path, sidebar=sidebar, favicon_path=self._favicon_seed)
             return web.Response(text=html, content_type="text/html")
 
         # Syntax-highlighted code
         if can_render_as_code(file_path):
-            html = render_code_file(file_path, sidebar=sidebar)
+            html = render_code_file(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
             return web.Response(text=html, content_type="text/html")
 
         # Plain text
         if is_text_file(file_path):
-            html = render_code_file(file_path, sidebar=sidebar)
+            html = render_code_file(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
             return web.Response(text=html, content_type="text/html")
 
         # Images
         _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"}
         if suffix in _IMAGE_EXTENSIONS:
-            html = render_image(file_path, rel_path, sidebar=sidebar)
+            html = render_image(file_path, rel_path, sidebar=sidebar, favicon_path=self._favicon_seed)
             return web.Response(text=html, content_type="text/html")
 
         # Everything else: show file info page with download link
         from serve.templates import wrap_file_info
         size = file_path.stat().st_size
-        html = wrap_file_info(file_path.name, rel_path, size, sidebar=sidebar, favicon_path=str(file_path))
+        html = wrap_file_info(file_path.name, rel_path, size, sidebar=sidebar, favicon_path=self._favicon_seed)
         return web.Response(text=html, content_type="text/html")
 
     async def _handle_file_tree(self, request: web.Request) -> web.Response:
@@ -294,6 +296,7 @@ class Server:
             source_line_end=body.get("source_line_end"),
             parent_id=body.get("parent_id"),
         )
+        await self.notify_comments_updated()
         return web.json_response(asdict(comment))
 
     async def _handle_update_comment(self, request: web.Request) -> web.Response:
@@ -308,6 +311,7 @@ class Server:
         )
         if not comment:
             return web.json_response({"error": "Not found"}, status=404)
+        await self.notify_comments_updated()
         return web.json_response(asdict(comment))
 
     async def _handle_delete_comment(self, request: web.Request) -> web.Response:
@@ -316,21 +320,30 @@ class Server:
         store = self._get_store(request)
         if not store.delete_comment(comment_id):
             return web.json_response({"error": "Not found"}, status=404)
+        await self.notify_comments_updated()
         return web.json_response({"ok": True})
 
     # ------------------------------------------------------------------
     # Reload notification
     # ------------------------------------------------------------------
 
-    async def notify_reload(self) -> None:
-        """Notify all connected browsers to reload."""
+    async def _broadcast(self, message: dict) -> None:
+        """Send a JSON message to all connected WebSocket clients."""
         closed = set()
         for ws in self._ws_clients:
             try:
-                await ws.send_json({"type": "reload"})
+                await ws.send_json(message)
             except ConnectionResetError:
                 closed.add(ws)
         self._ws_clients -= closed
+
+    async def notify_reload(self) -> None:
+        """Notify all connected browsers to reload."""
+        await self._broadcast({"type": "reload"})
+
+    async def notify_comments_updated(self) -> None:
+        """Notify all connected browsers that comments changed."""
+        await self._broadcast({"type": "comments-updated"})
 
     # ------------------------------------------------------------------
     # Port finding & startup
@@ -399,9 +412,15 @@ class Server:
                 )
             )
 
+        # Watch comment store for external changes (CLI resolve, etc.)
+        comment_watcher_task = asyncio.create_task(
+            watch_comments(self.notify_comments_updated)
+        )
+
         try:
             # Keep running until cancelled
             await asyncio.Event().wait()
         finally:
             watcher_task.cancel()
+            comment_watcher_task.cancel()
             await runner.cleanup()

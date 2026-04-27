@@ -57,6 +57,8 @@ RELOAD_SCRIPT = """\
       var data = JSON.parse(event.data);
       if (data.type === 'reload') {
         location.reload();
+      } else if (data.type === 'comments-updated') {
+        if (window.__refreshComments) window.__refreshComments();
       }
     };
     ws.onclose = function() {
@@ -1291,6 +1293,19 @@ _COMMENT_JS = """\
   // Expose openCommentForm for vim mode integration
   window.__serveOpenCommentForm = function(selInfo, parentId) {
     openCommentForm(selInfo, parentId);
+  };
+
+  // Expose a refresh hook for the WebSocket reload script
+  window.__refreshComments = function() {
+    api('GET', '').then(function(res) {
+      comments = res.comments || [];
+      clearHighlights();
+      applyHighlights();
+      updateBadge();
+      // Re-render the comment panel if it's currently open
+      var panel = document.getElementById('comment-panel');
+      if (panel && panel.classList.contains('open')) renderPanel();
+    });
   };
 
   // Run on load

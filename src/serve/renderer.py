@@ -108,6 +108,7 @@ def render(
     file_path: Path,
     *,
     sidebar: tuple[str, str] | None = None,
+    favicon_path: str | None = None,
 ) -> str:
     """Read a markdown file and return a complete HTML document."""
     source = file_path.read_text(encoding="utf-8")
@@ -115,23 +116,26 @@ def render(
     content = _parser.render(source)
     pygments_css = _formatter.get_style_defs(".highlight")
     title = file_path.stem
-    return wrap_markdown(title, content, pygments_css, sidebar=sidebar, favicon_path=str(file_path))
+    fav = favicon_path if favicon_path is not None else str(file_path)
+    return wrap_markdown(title, content, pygments_css, sidebar=sidebar, favicon_path=fav)
 
 
 def render_code_file(
     file_path: Path,
     *,
     sidebar: tuple[str, str] | None = None,
+    favicon_path: str | None = None,
 ) -> str:
     """Read a text file and return syntax-highlighted HTML."""
     source = file_path.read_text(encoding="utf-8")
+    fav = favicon_path if favicon_path is not None else str(file_path)
     try:
         lexer = get_lexer_for_filename(file_path.name, stripall=True)
     except ClassNotFound:
-        return wrap_plain(file_path.name, source, sidebar=sidebar, favicon_path=str(file_path))
+        return wrap_plain(file_path.name, source, sidebar=sidebar, favicon_path=fav)
     highlighted = highlight(source, lexer, _formatter)
     pygments_css = _formatter.get_style_defs(".highlight")
-    return wrap_code(file_path.name, highlighted, pygments_css, sidebar=sidebar, favicon_path=str(file_path))
+    return wrap_code(file_path.name, highlighted, pygments_css, sidebar=sidebar, favicon_path=fav)
 
 
 def render_pdf(
@@ -139,9 +143,11 @@ def render_pdf(
     url_path: str,
     *,
     sidebar: tuple[str, str] | None = None,
+    favicon_path: str | None = None,
 ) -> str:
     """Return an HTML page embedding a PDF."""
-    return wrap_pdf(file_path.name, url_path, sidebar=sidebar, favicon_path=str(file_path))
+    fav = favicon_path if favicon_path is not None else str(file_path)
+    return wrap_pdf(file_path.name, url_path, sidebar=sidebar, favicon_path=fav)
 
 
 def render_image(
@@ -149,9 +155,11 @@ def render_image(
     url_path: str,
     *,
     sidebar: tuple[str, str] | None = None,
+    favicon_path: str | None = None,
 ) -> str:
     """Return an HTML page displaying an image."""
-    return wrap_image(file_path.name, url_path, sidebar=sidebar, favicon_path=str(file_path))
+    fav = favicon_path if favicon_path is not None else str(file_path)
+    return wrap_image(file_path.name, url_path, sidebar=sidebar, favicon_path=fav)
 
 
 def can_render_as_code(file_path: Path) -> bool:

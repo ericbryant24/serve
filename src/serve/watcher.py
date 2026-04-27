@@ -45,3 +45,18 @@ async def watch_directory(
 
     async for _changes in awatch(root, watch_filter=_filter, debounce=500, recursive=True):
         await on_change()
+
+
+async def watch_comments(
+    on_change: Callable[[], Awaitable[None]],
+) -> None:
+    """Watch ~/.serve/comments/ for changes (e.g. from CLI resolve)."""
+    comments_dir = Path.home() / ".serve" / "comments"
+    if not comments_dir.is_dir():
+        comments_dir.mkdir(parents=True, exist_ok=True)
+
+    def _filter(change: Change, path: str) -> bool:
+        return path.endswith(".json")
+
+    async for _changes in awatch(comments_dir, watch_filter=_filter, debounce=300):
+        await on_change()
