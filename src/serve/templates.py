@@ -2070,10 +2070,10 @@ _SIDEBAR_CSS = """\
 
     /* Push body content when sidebar is open */
     body.has-sidebar {
-      margin-left: 280px;
+      margin-left: 280px !important;
     }
     body.sidebar-collapsed {
-      margin-left: 20px;
+      margin-left: 20px !important;
     }
 """
 
@@ -2331,15 +2331,21 @@ def inject_reload_script(
     *,
     sidebar: tuple[str, str] | None = None,
     favicon_path: str = "",
+    annotate_html: bool = True,
 ) -> str:
     """Inject the live-reload and comment scripts into an existing HTML document.
 
     sidebar: optional (dir_name, current_path) to inject file navigation.
     favicon_path: path string used to deterministically pick a favicon.
+    annotate_html: when True, add data-source-lines to every block tag based on
+        its line number in the rendered HTML. Marp output already carries
+        per-slide source-line ranges from the original markdown, so callers
+        pass False to avoid overwriting those with HTML-output line numbers.
     """
-    # Annotate block-level elements with source line numbers so the comment
-    # system can scope its text search to the correct element.
-    html = _annotate_html_source_lines(html)
+    if annotate_html:
+        # Annotate block-level elements with source line numbers so the comment
+        # system can scope its text search to the correct element.
+        html = _annotate_html_source_lines(html)
 
     favicon_tag = _favicon_link(favicon_path)
 

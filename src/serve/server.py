@@ -11,6 +11,7 @@ from aiohttp import web
 
 from serve.comments import CommentStore, ensure_document_id, get_document_id
 from serve.dataurl import generate_data_url
+from serve.marp import is_marp_doc, render_marp
 from serve.renderer import (
     can_render_as_code,
     is_text_file,
@@ -107,7 +108,10 @@ class Server:
     async def _handle_page(self, request: web.Request) -> web.Response:
         """Serve the HTML page (single-file mode)."""
         if self.mode == "markdown":
-            html = render(self.file_path, favicon_path=self._favicon_seed)
+            if is_marp_doc(self.file_path):
+                html = render_marp(self.file_path, favicon_path=self._favicon_seed)
+            else:
+                html = render(self.file_path, favicon_path=self._favicon_seed)
         else:
             html = self.file_path.read_text(encoding="utf-8")
             html = inject_reload_script(html, favicon_path=self._favicon_seed)
@@ -159,7 +163,10 @@ class Server:
 
         # Markdown
         if suffix == ".md":
-            html = render(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
+            if is_marp_doc(file_path):
+                html = render_marp(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
+            else:
+                html = render(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
             return web.Response(text=html, content_type="text/html")
 
         # HTML
