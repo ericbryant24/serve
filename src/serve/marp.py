@@ -110,7 +110,9 @@ def _inject_section_source_lines(html: str, ranges: list[tuple[int, int]]) -> st
     return _SECTION_OPEN_RE.sub(_replace, html)
 
 
-def _missing_marp_page(file_path: Path, *, sidebar, favicon_path: str | None) -> str:
+def _missing_marp_page(
+    file_path: Path, *, sidebar, favicon_path: str | None, bare: bool = False
+) -> str:
     body = (
         '<!doctype html><html><head>'
         '<meta charset="utf-8">'
@@ -133,12 +135,21 @@ def _missing_marp_page(file_path: Path, *, sidebar, favicon_path: str | None) ->
         '</body></html>'
     )
     return inject_reload_script(
-        body, sidebar=sidebar, favicon_path=favicon_path or "", annotate_html=False
+        body,
+        sidebar=sidebar,
+        favicon_path=favicon_path or "",
+        annotate_html=False,
+        bare=bare,
     )
 
 
 def _marp_error_page(
-    file_path: Path, stderr: str, *, sidebar, favicon_path: str | None
+    file_path: Path,
+    stderr: str,
+    *,
+    sidebar,
+    favicon_path: str | None,
+    bare: bool = False,
 ) -> str:
     body = (
         '<!doctype html><html><head>'
@@ -157,7 +168,11 @@ def _marp_error_page(
         '</body></html>'
     )
     return inject_reload_script(
-        body, sidebar=sidebar, favicon_path=favicon_path or "", annotate_html=False
+        body,
+        sidebar=sidebar,
+        favicon_path=favicon_path or "",
+        annotate_html=False,
+        bare=bare,
     )
 
 
@@ -166,11 +181,18 @@ def render_marp(
     *,
     sidebar: tuple[str, str] | None = None,
     favicon_path: str | None = None,
+    bare: bool = False,
 ) -> str:
-    """Render a Marp deck to a complete HTML page with reload + comment hooks."""
+    """Render a Marp deck to a complete HTML page with reload + comment hooks.
+
+    bare: when True, inject only the live-reload script — no comment UI, no
+        vim toggle, no sidebar. Used by the present-in-new-tab view.
+    """
     cmd = _resolve_marp_cmd()
     if cmd is None:
-        return _missing_marp_page(file_path, sidebar=sidebar, favicon_path=favicon_path)
+        return _missing_marp_page(
+            file_path, sidebar=sidebar, favicon_path=favicon_path, bare=bare
+        )
 
     try:
         result = subprocess.run(
@@ -181,19 +203,33 @@ def render_marp(
         )
     except subprocess.TimeoutExpired:
         return _marp_error_page(
-            file_path, "marp-cli timed out after 60s", sidebar=sidebar, favicon_path=favicon_path
+            file_path,
+            "marp-cli timed out after 60s",
+            sidebar=sidebar,
+            favicon_path=favicon_path,
+            bare=bare,
         )
     except FileNotFoundError:
-        return _missing_marp_page(file_path, sidebar=sidebar, favicon_path=favicon_path)
+        return _missing_marp_page(
+            file_path, sidebar=sidebar, favicon_path=favicon_path, bare=bare
+        )
 
     if result.returncode != 0 or not result.stdout.strip():
         return _marp_error_page(
-            file_path, result.stderr, sidebar=sidebar, favicon_path=favicon_path
+            file_path,
+            result.stderr,
+            sidebar=sidebar,
+            favicon_path=favicon_path,
+            bare=bare,
         )
 
     html = result.stdout
     ranges = _slide_line_ranges(_read(file_path))
     html = _inject_section_source_lines(html, ranges)
     return inject_reload_script(
-        html, sidebar=sidebar, favicon_path=favicon_path or "", annotate_html=False
+        html,
+        sidebar=sidebar,
+        favicon_path=favicon_path or "",
+        annotate_html=False,
+        bare=bare,
     )

@@ -692,6 +692,64 @@ _ZOOM_JS = """\
 """
 
 # ---------------------------------------------------------------------------
+# Present button (marp docs only) — opens slide-rendered view in a new tab
+# ---------------------------------------------------------------------------
+
+_PRESENT_CSS = """\
+    /* Present button — bottom-right column, above the zoom control */
+    #present-btn {
+      position: fixed;
+      bottom: 140px;
+      right: 20px;
+      height: 32px;
+      padding: 0 14px;
+      border-radius: 16px;
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #374151;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      z-index: 9999;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: all 0.15s;
+    }
+    #present-btn:hover {
+      border-color: #3b82f6;
+      color: #3b82f6;
+    }
+    #present-btn .present-icon {
+      font-size: 13px;
+    }
+"""
+
+_PRESENT_JS = """\
+(function() {
+  var btn = document.createElement('button');
+  btn.id = 'present-btn';
+  btn.title = 'Open slide presentation in a new tab';
+  btn.innerHTML = '<span class="present-icon">\\u25B6</span><span>Present</span>';
+  btn.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var url = location.pathname + '?present=1';
+    window.open(url, '_blank');
+  });
+  if (document.body) {
+    document.body.appendChild(btn);
+  } else {
+    document.addEventListener('DOMContentLoaded', function() {
+      document.body.appendChild(btn);
+    });
+  }
+})();
+"""
+
+# ---------------------------------------------------------------------------
 # Comment JavaScript
 # ---------------------------------------------------------------------------
 
@@ -2230,16 +2288,21 @@ def wrap_markdown(
     *,
     sidebar: tuple[str, str] | None = None,
     favicon_path: str = "",
+    is_marp: bool = False,
 ) -> str:
     """Wrap rendered markdown HTML in a full HTML document with comment support.
 
     sidebar: optional (dir_name, current_path) to inject file navigation.
     favicon_path: path string used to deterministically pick a favicon.
+    is_marp: when True, inject a "Present" button that opens ?present=1 in a
+        new tab to render the document as marp slides.
     """
     parts = [_HEAD_TEMPLATE.format(title=title, pygments_css=pygments_css, favicon=_favicon_link(favicon_path))]
     parts.append(_COMMENT_CSS)
     parts.append(_VIM_CSS)
     parts.append(_ZOOM_CSS)
+    if is_marp:
+        parts.append(_PRESENT_CSS)
     if sidebar:
         parts.append(_SIDEBAR_CSS)
     parts.append(_HEAD_CLOSE)
@@ -2251,6 +2314,8 @@ def wrap_markdown(
     parts.append("<script>" + _COMMENT_JS + "</script>\n")
     parts.append("<script>" + _VIM_JS + "</script>\n")
     parts.append("<script>" + _ZOOM_JS + "</script>\n")
+    if is_marp:
+        parts.append("<script>" + _PRESENT_JS + "</script>\n")
     if sidebar:
         parts.append("<script>" + _SIDEBAR_JS + "</script>\n")
     parts.append(_BODY_CLOSE)
@@ -2332,6 +2397,7 @@ def inject_reload_script(
     sidebar: tuple[str, str] | None = None,
     favicon_path: str = "",
     annotate_html: bool = True,
+    bare: bool = False,
 ) -> str:
     """Inject the live-reload and comment scripts into an existing HTML document.
 
@@ -2341,6 +2407,8 @@ def inject_reload_script(
         its line number in the rendered HTML. Marp output already carries
         per-slide source-line ranges from the original markdown, so callers
         pass False to avoid overwriting those with HTML-output line numbers.
+    bare: when True, inject only the favicon and live-reload websocket — skip
+        comment UI, vim mode, and sidebar. Used by the marp present view.
     """
     if annotate_html:
         # Annotate block-level elements with source line numbers so the comment
@@ -2349,21 +2417,25 @@ def inject_reload_script(
 
     favicon_tag = _favicon_link(favicon_path)
 
-    css_parts = [_COMMENT_CSS, _VIM_CSS]
-    if sidebar:
-        css_parts.append(_SIDEBAR_CSS)
-    css_tag = "<style>" + "\n".join(css_parts) + "</style>"
+    if bare:
+        css_tag = ""
+        scripts = "<script>" + RELOAD_SCRIPT + "</script>"
+    else:
+        css_parts = [_COMMENT_CSS, _VIM_CSS]
+        if sidebar:
+            css_parts.append(_SIDEBAR_CSS)
+        css_tag = "<style>" + "\n".join(css_parts) + "</style>"
 
-    script_parts = []
-    if sidebar:
-        script_parts.append(_sidebar_html(*sidebar))
-    script_parts.append(_COMMENT_HTML)
-    script_parts.append("<script>" + RELOAD_SCRIPT + "</script>\n")
-    script_parts.append("<script>" + _COMMENT_JS + "</script>")
-    script_parts.append("<script>" + _VIM_JS + "</script>")
-    if sidebar:
-        script_parts.append("<script>" + _SIDEBAR_JS + "</script>")
-    scripts = "\n".join(script_parts)
+        script_parts = []
+        if sidebar:
+            script_parts.append(_sidebar_html(*sidebar))
+        script_parts.append(_COMMENT_HTML)
+        script_parts.append("<script>" + RELOAD_SCRIPT + "</script>\n")
+        script_parts.append("<script>" + _COMMENT_JS + "</script>")
+        script_parts.append("<script>" + _VIM_JS + "</script>")
+        if sidebar:
+            script_parts.append("<script>" + _SIDEBAR_JS + "</script>")
+        scripts = "\n".join(script_parts)
 
     # Inject favicon into <head>
     if "</head>" in html:

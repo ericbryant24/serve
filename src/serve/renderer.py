@@ -109,6 +109,7 @@ def render(
     *,
     sidebar: tuple[str, str] | None = None,
     favicon_path: str | None = None,
+    is_marp: bool = False,
 ) -> str:
     """Read a markdown file and return a complete HTML document."""
     source = file_path.read_text(encoding="utf-8")
@@ -117,7 +118,14 @@ def render(
     pygments_css = _formatter.get_style_defs(".highlight")
     title = file_path.stem
     fav = favicon_path if favicon_path is not None else str(file_path)
-    return wrap_markdown(title, content, pygments_css, sidebar=sidebar, favicon_path=fav)
+    return wrap_markdown(
+        title,
+        content,
+        pygments_css,
+        sidebar=sidebar,
+        favicon_path=fav,
+        is_marp=is_marp,
+    )
 
 
 def render_code_file(

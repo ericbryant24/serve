@@ -108,10 +108,17 @@ class Server:
     async def _handle_page(self, request: web.Request) -> web.Response:
         """Serve the HTML page (single-file mode)."""
         if self.mode == "markdown":
-            if is_marp_doc(self.file_path):
-                html = render_marp(self.file_path, favicon_path=self._favicon_seed)
+            marp = is_marp_doc(self.file_path)
+            if marp and request.query.get("present") == "1":
+                html = render_marp(
+                    self.file_path, favicon_path=self._favicon_seed, bare=True
+                )
             else:
-                html = render(self.file_path, favicon_path=self._favicon_seed)
+                html = render(
+                    self.file_path,
+                    favicon_path=self._favicon_seed,
+                    is_marp=marp,
+                )
         else:
             html = self.file_path.read_text(encoding="utf-8")
             html = inject_reload_script(html, favicon_path=self._favicon_seed)
@@ -163,10 +170,18 @@ class Server:
 
         # Markdown
         if suffix == ".md":
-            if is_marp_doc(file_path):
-                html = render_marp(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
+            marp = is_marp_doc(file_path)
+            if marp and request.query.get("present") == "1":
+                html = render_marp(
+                    file_path, favicon_path=self._favicon_seed, bare=True
+                )
             else:
-                html = render(file_path, sidebar=sidebar, favicon_path=self._favicon_seed)
+                html = render(
+                    file_path,
+                    sidebar=sidebar,
+                    favicon_path=self._favicon_seed,
+                    is_marp=marp,
+                )
             return web.Response(text=html, content_type="text/html")
 
         # HTML
