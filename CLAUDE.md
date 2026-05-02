@@ -44,6 +44,8 @@ uv run serve .                # serve a directory (sidebar + all file types)
 uv run serve comments file.md # list comments
 uv run serve resolve file.md <id> # resolve comment
 uv run serve agent-init       # set up agent integration (Claude Code)
+uv run serve list             # list running instances (also: --json)
+uv run serve kill <pid>       # stop one (also: --port N, --all, --force)
 ```
 
 ## Keeping docs in sync

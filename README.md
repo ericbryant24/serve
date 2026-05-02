@@ -68,6 +68,20 @@ serve document.md --no-open
 serve document.md --data-url
 ```
 
+### Managing running instances
+
+```bash
+# List every running serve (table view; --json for scripting)
+serve list
+
+# Stop a specific instance
+serve kill <pid>
+serve kill --port 8001
+
+# Stop them all
+serve kill --all
+```
+
 ## Directory Mode
 
 Pass a directory path (or no argument if there's no `index.html`) to serve all files with a sidebar navigation panel.

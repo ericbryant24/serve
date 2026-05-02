@@ -93,6 +93,101 @@ def _cmd_agent_init(argv: list[str]) -> None:
     cmd_agent_init(argv)
 
 
+def _cmd_list(argv: list[str]) -> None:
+    """List running serve instances."""
+    from serve.instances import list_instances
+
+    parser = argparse.ArgumentParser(
+        prog="serve list",
+        description="List running serve instances",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+    args = parser.parse_args(argv)
+
+    instances = list_instances()
+
+    if args.json:
+        print(json.dumps([i.to_dict() for i in instances], indent=2))
+        return
+
+    if not instances:
+        print("No serve instances running.")
+        return
+
+    rows = [
+        (
+            str(i.pid),
+            str(i.port) if i.port else "?",
+            i.mode,
+            i.started or "?",
+            i.url or "?",
+            i.path,
+        )
+        for i in instances
+    ]
+    headers = ("PID", "PORT", "MODE", "STARTED", "URL", "PATH")
+    widths = [max(len(h), max(len(r[c]) for r in rows)) for c, h in enumerate(headers)]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    print(fmt.format(*headers))
+    for r in rows:
+        print(fmt.format(*r))
+
+
+def _cmd_kill(argv: list[str]) -> None:
+    """Kill running serve instances."""
+    from serve.instances import kill_instance, list_instances
+
+    parser = argparse.ArgumentParser(
+        prog="serve kill",
+        description="Stop running serve instances",
+    )
+    parser.add_argument("pids", nargs="*", type=int, help="PID(s) to kill")
+    parser.add_argument("--all", action="store_true", help="Kill every running instance")
+    parser.add_argument("--port", type=int, help="Kill the instance listening on this port")
+    parser.add_argument("--force", action="store_true", help="Use SIGKILL instead of SIGTERM")
+    args = parser.parse_args(argv)
+
+    if not args.pids and not args.all and args.port is None:
+        parser.error("specify PID(s), --all, or --port")
+
+    instances = list_instances()
+    by_pid = {i.pid: i for i in instances}
+    targets: list[int] = []
+
+    if args.all:
+        targets.extend(by_pid.keys())
+    if args.port is not None:
+        match = next((i for i in instances if i.port == args.port), None)
+        if not match:
+            print(f"No serve instance listening on port {args.port}", file=sys.stderr)
+            sys.exit(1)
+        targets.append(match.pid)
+    targets.extend(args.pids)
+
+    seen: set[int] = set()
+    failed = False
+    for pid in targets:
+        if pid in seen:
+            continue
+        seen.add(pid)
+        inst = by_pid.get(pid)
+        try:
+            kill_instance(pid, force=args.force)
+        except ProcessLookupError:
+            print(f"PID {pid}: not running", file=sys.stderr)
+            failed = True
+            continue
+        except PermissionError:
+            print(f"PID {pid}: permission denied", file=sys.stderr)
+            failed = True
+            continue
+        suffix = f" (port {inst.port})" if inst and inst.port else ""
+        print(f"Killed PID {pid}{suffix}")
+
+    if failed:
+        sys.exit(1)
+
+
 def _cmd_serve(argv: list[str]) -> None:
     """Start the document server (default command)."""
     from serve.server import Server
@@ -103,7 +198,9 @@ def _cmd_serve(argv: list[str]) -> None:
         epilog="subcommands:\n"
                "  serve agent-init                   Set up agent integration\n"
                "  serve comments <file>              List inline comments (JSON)\n"
-               "  serve resolve <file> <id> [id...]  Mark comments as resolved\n",
+               "  serve resolve <file> <id> [id...]  Mark comments as resolved\n"
+               "  serve list                         List running serve instances\n"
+               "  serve kill <pid>... | --all        Stop running serve instances\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -184,6 +281,9 @@ _SUBCOMMANDS = {
     "agent-init": _cmd_agent_init,
     "comments": _cmd_comments,
     "resolve": _cmd_resolve,
+    "list": _cmd_list,
+    "ls": _cmd_list,
+    "kill": _cmd_kill,
 }
 
 
