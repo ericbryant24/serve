@@ -485,6 +485,31 @@ _VIM_CSS = """
       outline-offset: 1px;
       border-radius: 2px;
     }
+    /* Cell-mode cursor (table grid navigation) */
+    .vim-cell-cursor {
+      outline: 2px solid #3b82f6;
+      outline-offset: -2px;
+      background: rgba(59, 130, 246, 0.06) !important;
+    }
+    /* Caret-mode overlay (character-level cursor) */
+    #vim-caret {
+      position: absolute;
+      width: 2px;
+      background: #3b82f6;
+      z-index: 9998;
+      pointer-events: none;
+      display: none;
+      animation: vim-caret-blink 1s steps(2, start) infinite;
+    }
+    @keyframes vim-caret-blink {
+      to { visibility: hidden; }
+    }
+    #vim-indicator.caret { background: #047857; }
+    #vim-indicator.cell { background: #6d28d9; }
+    /* Native ::selection styling used during caret-visual mode */
+    .vim-mode-caret-visual ::selection {
+      background: rgba(59, 130, 246, 0.35);
+    }
 """
 
 # ---------------------------------------------------------------------------
@@ -1382,7 +1407,7 @@ _VIM_JS = """\
 (function() {
   // --- State ---
   var enabled = localStorage.getItem('serve-vim-mode') === '1';
-  var mode = 'normal';  // 'normal' | 'visual' | 'search'
+  var mode = 'normal';  // 'normal' | 'visual' | 'caret' | 'cell' | 'search'
   var blocks = [];
   var cursorIdx = -1;
   var selStart = -1;
@@ -1393,8 +1418,19 @@ _VIM_JS = """\
   var searchMarks = [];
   var searchIdx = -1;
 
+  // Caret mode: character-level cursor inside a single block
+  var caretBlock = null;     // the element being navigated
+  var caretNode = null;      // current text node
+  var caretOffset = 0;       // current offset within caretNode
+  var caretAnchor = null;    // {node, offset} when caret-visual is active
+  var caretCol = null;       // remembered x for j/k vertical motion
+
+  // Cell mode: 2D grid navigation inside a table
+  var cellTable = null;      // active <table> element
+  var currentCell = null;    // active <td>/<th>
+
   // --- DOM elements (created on init) ---
-  var indicator, toggle, searchBar, searchInput, searchCount;
+  var indicator, toggle, searchBar, searchInput, searchCount, caretEl;
 
   // --- Collect navigable blocks ---
   function collectBlocks() {
@@ -1531,6 +1567,417 @@ _VIM_JS = """\
     if (typeof window.__serveOpenCommentForm === 'function') {
       window.__serveOpenCommentForm(selInfo);
     }
+  }
+
+  // --- Caret mode: char-level cursor inside a single block ---
+  function caretTextNodes(block) {
+    var nodes = [];
+    var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(n) {
+        if (n.parentElement && n.parentElement.closest(
+            '.comment-popover, .comment-form, .orphaned-comments, script, style')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    return nodes;
+  }
+
+  function caretLinearPos(nodes, node, offset) {
+    var pos = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i] === node) return pos + offset;
+      pos += nodes[i].textContent.length;
+    }
+    return pos;
+  }
+
+  function caretFromLinear(nodes, linear) {
+    if (nodes.length === 0) return null;
+    var pos = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var len = nodes[i].textContent.length;
+      if (linear <= pos + len) return { node: nodes[i], offset: linear - pos };
+      pos += len;
+    }
+    var last = nodes[nodes.length - 1];
+    return { node: last, offset: last.textContent.length };
+  }
+
+  function caretTotalLen(nodes) {
+    var t = 0;
+    for (var i = 0; i < nodes.length; i++) t += nodes[i].textContent.length;
+    return t;
+  }
+
+  function caretCurrentRect() {
+    if (!caretNode) return null;
+    var range = document.createRange();
+    var len = caretNode.textContent.length;
+    if (len === 0) {
+      // Empty text node — anchor on parent
+      try { range.selectNodeContents(caretNode.parentNode); range.collapse(true); }
+      catch (e) { return null; }
+    } else if (caretOffset >= len) {
+      range.setStart(caretNode, len - 1);
+      range.setEnd(caretNode, len);
+      var r = range.getBoundingClientRect();
+      return { left: r.right, top: r.top, height: r.height };
+    } else {
+      range.setStart(caretNode, caretOffset);
+      range.setEnd(caretNode, caretOffset + 1);
+      var r2 = range.getBoundingClientRect();
+      return { left: r2.left, top: r2.top, height: r2.height };
+    }
+    var r3 = range.getBoundingClientRect();
+    return { left: r3.left, top: r3.top, height: r3.height || 16 };
+  }
+
+  function renderCaret() {
+    if (mode !== 'caret') { caretEl.style.display = 'none'; return; }
+    var rect = caretCurrentRect();
+    if (!rect) { caretEl.style.display = 'none'; return; }
+    caretEl.style.display = 'block';
+    caretEl.style.left = (rect.left + window.scrollX) + 'px';
+    caretEl.style.top = (rect.top + window.scrollY) + 'px';
+    caretEl.style.height = (rect.height || 16) + 'px';
+    // Keep on screen
+    var vh = window.innerHeight;
+    if (rect.top < 80) window.scrollBy({ top: rect.top - 80, behavior: 'smooth' });
+    else if (rect.top > vh - 80) window.scrollBy({ top: rect.top - (vh - 80), behavior: 'smooth' });
+  }
+
+  function setCaretLinear(linear, options) {
+    var nodes = caretTextNodes(caretBlock);
+    var total = caretTotalLen(nodes);
+    if (linear < 0) linear = 0;
+    if (linear > total) linear = total;
+    var pos = caretFromLinear(nodes, linear);
+    if (!pos) return;
+    caretNode = pos.node;
+    caretOffset = pos.offset;
+    if (caretAnchor) {
+      // Caret-visual: extend selection
+      var sel = window.getSelection();
+      try {
+        sel.setBaseAndExtent(caretAnchor.node, caretAnchor.offset, caretNode, caretOffset);
+      } catch (e) {}
+    } else {
+      window.getSelection().removeAllRanges();
+    }
+    if (!options || options.resetCol !== false) {
+      var rect = caretCurrentRect();
+      caretCol = rect ? rect.left : null;
+    }
+    renderCaret();
+  }
+
+  function caretCurrentLinear() {
+    var nodes = caretTextNodes(caretBlock);
+    return caretLinearPos(nodes, caretNode, caretOffset);
+  }
+
+  function moveCaret(delta) {
+    setCaretLinear(caretCurrentLinear() + delta);
+  }
+
+  function moveCaretWord(direction) {
+    // Vim-ish word: word-char runs OR single non-word non-space chars; whitespace skipped.
+    var nodes = caretTextNodes(caretBlock);
+    var text = '';
+    for (var i = 0; i < nodes.length; i++) text += nodes[i].textContent;
+    var pos = caretCurrentLinear();
+    var WORD = /\\w/;
+    var SPACE = /\\s/;
+    if (direction > 0) {
+      // 'w': move forward to start of next word
+      var n = pos;
+      var initial = text.charAt(n);
+      var isWord = WORD.test(initial);
+      var isSpace = SPACE.test(initial);
+      while (n < text.length) {
+        var c = text.charAt(n);
+        if (isSpace) { if (!SPACE.test(c)) break; }
+        else if (isWord) { if (!WORD.test(c)) break; }
+        else { if (WORD.test(c) || SPACE.test(c)) break; }
+        n++;
+      }
+      // Skip whitespace to start of next token
+      while (n < text.length && SPACE.test(text.charAt(n))) n++;
+      setCaretLinear(n);
+    } else {
+      // 'b': move backward to start of current/previous word
+      var m = pos;
+      if (m > 0) m--;
+      while (m > 0 && SPACE.test(text.charAt(m))) m--;
+      var ch = text.charAt(m);
+      var wordy = WORD.test(ch);
+      while (m > 0) {
+        var prev = text.charAt(m - 1);
+        if (wordy && !WORD.test(prev)) break;
+        if (!wordy && (WORD.test(prev) || SPACE.test(prev))) break;
+        m--;
+      }
+      setCaretLinear(m);
+    }
+  }
+
+  function moveCaretLineEnd(toEnd) {
+    // 0 / $: snap to start or end of the current visual line
+    var rect = caretCurrentRect();
+    if (!rect) return;
+    var nodes = caretTextNodes(caretBlock);
+    var total = caretTotalLen(nodes);
+    var current = caretCurrentLinear();
+    // Walk linear positions until rect.top changes
+    var step = toEnd ? 1 : -1;
+    var bestLinear = current;
+    var i = current;
+    while (true) {
+      var nextI = i + step;
+      if (nextI < 0 || nextI > total) break;
+      var p = caretFromLinear(nodes, nextI);
+      if (!p) break;
+      var range = document.createRange();
+      range.setStart(p.node, p.offset);
+      range.collapse(true);
+      var r = range.getBoundingClientRect();
+      if (!r || (r.top === 0 && r.height === 0)) { i = nextI; continue; }
+      if (Math.abs(r.top - rect.top) > rect.height * 0.6) break;
+      bestLinear = nextI;
+      i = nextI;
+    }
+    setCaretLinear(bestLinear);
+  }
+
+  function moveCaretLine(direction) {
+    // j/k: move to nearest position one line up/down at remembered column
+    var rect = caretCurrentRect();
+    if (!rect) return;
+    var col = (caretCol != null) ? caretCol : rect.left;
+    var lineHeight = rect.height || 16;
+    var nodes = caretTextNodes(caretBlock);
+    var total = caretTotalLen(nodes);
+    var current = caretCurrentLinear();
+    var targetTop = rect.top + direction * lineHeight * 1.2;
+
+    // Search outward from current position for the closest pos on the target line
+    var bestLinear = current;
+    var bestDx = Infinity;
+    var bestFound = false;
+    var step = direction > 0 ? 1 : -1;
+    var i = current;
+    var iters = 0;
+    while (iters < total + 2) {
+      var nextI = i + step;
+      if (nextI < 0 || nextI > total) break;
+      var p = caretFromLinear(nodes, nextI);
+      if (!p) break;
+      var range = document.createRange();
+      range.setStart(p.node, p.offset);
+      range.collapse(true);
+      var r = range.getBoundingClientRect();
+      i = nextI;
+      iters++;
+      if (!r || (r.top === 0 && r.height === 0)) continue;
+      if (direction > 0 ? (r.top >= rect.top + lineHeight * 0.6) : (r.top <= rect.top - lineHeight * 0.4)) {
+        // On target line (or beyond)
+        bestFound = true;
+        var dx = Math.abs(r.left - col);
+        if (dx < bestDx) { bestDx = dx; bestLinear = nextI; }
+        // Stop once we leave the target line
+        if (Math.abs(r.top - targetTop) > lineHeight) break;
+      }
+    }
+    if (bestFound) setCaretLinear(bestLinear, { resetCol: false });
+  }
+
+  function enterCaret(block) {
+    if (!block) return;
+    caretBlock = block;
+    var nodes = caretTextNodes(block);
+    if (nodes.length === 0) return;
+    caretNode = nodes[0];
+    caretOffset = 0;
+    caretAnchor = null;
+    caretCol = null;
+    mode = 'caret';
+    // Hide the block-level cursor outline while in caret mode
+    if (cursorIdx >= 0 && cursorIdx < blocks.length) {
+      blocks[cursorIdx].classList.remove('vim-cursor');
+    }
+    window.getSelection().removeAllRanges();
+    document.body.classList.remove('vim-mode-caret-visual');
+    renderCaret();
+    updateIndicator();
+  }
+
+  function startCaretVisual() {
+    caretAnchor = { node: caretNode, offset: caretOffset };
+    document.body.classList.add('vim-mode-caret-visual');
+    var sel = window.getSelection();
+    try {
+      sel.setBaseAndExtent(caretAnchor.node, caretAnchor.offset, caretNode, caretOffset);
+    } catch (e) {}
+    updateIndicator();
+  }
+
+  function exitCaret(returnTo) {
+    caretEl.style.display = 'none';
+    document.body.classList.remove('vim-mode-caret-visual');
+    window.getSelection().removeAllRanges();
+    caretBlock = null;
+    caretNode = null;
+    caretOffset = 0;
+    caretAnchor = null;
+    caretCol = null;
+    mode = returnTo || 'normal';
+    if (mode === 'normal' && cursorIdx >= 0 && cursorIdx < blocks.length) {
+      blocks[cursorIdx].classList.add('vim-cursor');
+    }
+    updateIndicator();
+  }
+
+  function commentFromCaret() {
+    if (!caretBlock) return;
+    var anchorText;
+    if (caretAnchor) {
+      anchorText = window.getSelection().toString();
+      if (!anchorText) anchorText = caretBlock.textContent.trim();
+    } else {
+      // No selection — comment on the whole block
+      anchorText = caretBlock.textContent.trim();
+    }
+    var selInfo = {
+      anchorText: anchorText,
+      blockText: caretBlock.textContent.trim(),
+      sourceLines: nearestSourceLines(caretBlock),
+      block: caretBlock
+    };
+    // Submitting a comment always returns to normal mode (consistent with
+    // commentFromVisual). If we were nested inside cell mode, also drop
+    // out of that.
+    if (cellTable) {
+      currentCell = null;
+      cellTable = null;
+    }
+    exitCaret('normal');
+    if (typeof window.__serveOpenCommentForm === 'function') {
+      window.__serveOpenCommentForm(selInfo);
+    }
+  }
+
+  // --- Cell mode: 2D table navigation ---
+  function tableCells(table) {
+    return Array.from(table.querySelectorAll('td, th'));
+  }
+  function rowCells(row) {
+    return Array.from(row.children).filter(function(c) {
+      return c.tagName === 'TD' || c.tagName === 'TH';
+    });
+  }
+
+  function setCellCursor(cell) {
+    if (currentCell) currentCell.classList.remove('vim-cell-cursor');
+    currentCell = cell;
+    if (!cell) return;
+    cell.classList.add('vim-cell-cursor');
+    cell.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function enterCell(table, hint) {
+    cellTable = table;
+    var startCell = null;
+    if (hint) {
+      if (hint.tagName === 'TD' || hint.tagName === 'TH') startCell = hint;
+      else if (hint.tagName === 'TR') startCell = hint.querySelector('td, th');
+      else startCell = hint.querySelector('td, th');
+    }
+    if (!startCell) startCell = table.querySelector('td, th');
+    if (!startCell) return false;
+    mode = 'cell';
+    if (cursorIdx >= 0 && cursorIdx < blocks.length) {
+      blocks[cursorIdx].classList.remove('vim-cursor');
+    }
+    setCellCursor(startCell);
+    updateIndicator();
+    return true;
+  }
+
+  function moveCellHoriz(delta) {
+    if (!currentCell) return;
+    var row = currentCell.parentElement;
+    var cells = rowCells(row);
+    var idx = cells.indexOf(currentCell);
+    var next = idx + delta;
+    if (next < 0) next = 0;
+    if (next >= cells.length) next = cells.length - 1;
+    setCellCursor(cells[next]);
+  }
+
+  function moveCellVert(delta) {
+    if (!currentCell) return;
+    var row = currentCell.parentElement;
+    var col = rowCells(row).indexOf(currentCell);
+    var rows = Array.from(cellTable.querySelectorAll('tr'));
+    var rowIdx = rows.indexOf(row);
+    var next = rowIdx + delta;
+    if (next < 0) next = 0;
+    if (next >= rows.length) next = rows.length - 1;
+    var newCells = rowCells(rows[next]);
+    if (newCells.length === 0) return;
+    var newCol = Math.min(col, newCells.length - 1);
+    setCellCursor(newCells[newCol]);
+  }
+
+  function exitCell() {
+    if (currentCell) currentCell.classList.remove('vim-cell-cursor');
+    currentCell = null;
+    cellTable = null;
+    mode = 'normal';
+    if (cursorIdx >= 0 && cursorIdx < blocks.length) {
+      blocks[cursorIdx].classList.add('vim-cursor');
+    }
+    updateIndicator();
+  }
+
+  function nearestSourceLines(el) {
+    // markdown-it doesn't set map on td/th tokens, so cells lack
+    // data-source-lines. Walk up to the nearest ancestor that has it.
+    var cur = el;
+    while (cur && cur !== document.body) {
+      var sl = cur.getAttribute && cur.getAttribute('data-source-lines');
+      if (sl) {
+        var parts = sl.split('-');
+        return { start: parseInt(parts[0], 10), end: parseInt(parts[1], 10) };
+      }
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
+  function commentFromCell() {
+    if (!currentCell) return;
+    var selInfo = {
+      anchorText: currentCell.textContent.trim(),
+      blockText: currentCell.textContent.trim(),
+      sourceLines: nearestSourceLines(currentCell),
+      block: currentCell
+    };
+    exitCell();
+    if (typeof window.__serveOpenCommentForm === 'function') {
+      window.__serveOpenCommentForm(selInfo);
+    }
+  }
+
+  function blockIsTableLike(block) {
+    if (!block) return false;
+    var t = block.tagName;
+    if (t === 'TABLE' || t === 'THEAD' || t === 'TBODY' || t === 'TR' ||
+        t === 'TD' || t === 'TH') return true;
+    return !!(block.closest && block.closest('table'));
   }
 
   // --- Search ---
@@ -1674,17 +2121,23 @@ _VIM_JS = """\
   // --- Indicator ---
   function updateIndicator() {
     if (!enabled) {
-      indicator.classList.remove('active', 'visual', 'search');
+      indicator.classList.remove('active', 'visual', 'search', 'caret', 'cell');
       return;
     }
     indicator.classList.add('active');
-    indicator.classList.remove('visual', 'search');
+    indicator.classList.remove('visual', 'search', 'caret', 'cell');
     if (mode === 'visual') {
       indicator.textContent = '-- VISUAL --';
       indicator.classList.add('visual');
     } else if (mode === 'search') {
       indicator.textContent = '-- SEARCH --';
       indicator.classList.add('search');
+    } else if (mode === 'caret') {
+      indicator.textContent = caretAnchor ? '-- CARET VISUAL --' : '-- CARET --';
+      indicator.classList.add('caret');
+    } else if (mode === 'cell') {
+      indicator.textContent = '-- CELL --';
+      indicator.classList.add('cell');
     } else {
       indicator.textContent = '-- NORMAL --';
     }
@@ -1748,6 +2201,18 @@ _VIM_JS = """\
         // Line-wise visual: select current block, immediately open comment
         enterVisual();
         e.preventDefault();
+      }
+      else if (key === 'i' || key === 'Enter') {
+        if (cursorIdx >= 0 && cursorIdx < blocks.length) {
+          var block = blocks[cursorIdx];
+          if (blockIsTableLike(block)) {
+            var table = block.tagName === 'TABLE' ? block : block.closest('table');
+            if (table) enterCell(table, block);
+          } else {
+            enterCaret(block);
+          }
+          e.preventDefault();
+        }
       }
       else if (key === '/') { openSearch(); e.preventDefault(); }
       else if (key === 'n') { nextMatch(1); e.preventDefault(); }
@@ -1819,6 +2284,139 @@ _VIM_JS = """\
       else if (key === 'Escape' || key === 'v') { exitVisual(); e.preventDefault(); }
       return;
     }
+
+    // --- Cell mode (2D table grid) ---
+    if (mode === 'cell') {
+      if (key === 'h') { moveCellHoriz(-1); e.preventDefault(); }
+      else if (key === 'l') { moveCellHoriz(1); e.preventDefault(); }
+      else if (key === 'j') { moveCellVert(1); e.preventDefault(); }
+      else if (key === 'k') { moveCellVert(-1); e.preventDefault(); }
+      else if (key === 'i' || key === 'Enter') {
+        // Drop into caret mode within the current cell
+        if (currentCell) {
+          var savedCell = currentCell;
+          // Don't fully exit cell — preserve cellTable so commentFromCaret returns to cell
+          currentCell.classList.remove('vim-cell-cursor');
+          enterCaret(savedCell);
+          // enterCaret set mode to 'caret'; cellTable still set so 'Esc' returns to cell mode
+        }
+        e.preventDefault();
+      }
+      else if (key === 'v') {
+        // Enter caret mode + immediately start visual selection covering whole cell
+        if (currentCell) {
+          var cell = currentCell;
+          cell.classList.remove('vim-cell-cursor');
+          enterCaret(cell);
+          // Move caret to end and anchor at start
+          var nodes = caretTextNodes(cell);
+          if (nodes.length > 0) {
+            caretAnchor = { node: nodes[0], offset: 0 };
+            setCaretLinear(caretTotalLen(nodes));
+            document.body.classList.add('vim-mode-caret-visual');
+            updateIndicator();
+          }
+        }
+        e.preventDefault();
+      }
+      else if (key === 'c') { commentFromCell(); e.preventDefault(); }
+      else if (key === 'Escape') { exitCell(); e.preventDefault(); }
+      else if (key === 'G') {
+        // Last cell of table
+        var allCells = tableCells(cellTable);
+        if (allCells.length) setCellCursor(allCells[allCells.length - 1]);
+        e.preventDefault();
+      }
+      else if (key === 'g') {
+        if (pendingG) {
+          var firstAll = tableCells(cellTable);
+          if (firstAll.length) setCellCursor(firstAll[0]);
+          pendingG = false;
+        } else {
+          pendingG = true;
+          setTimeout(function() { pendingG = false; }, 500);
+        }
+        e.preventDefault();
+      }
+      else if (key === '0') {
+        // First cell of current row
+        if (currentCell) {
+          var rc = rowCells(currentCell.parentElement);
+          if (rc.length) setCellCursor(rc[0]);
+        }
+        e.preventDefault();
+      }
+      else if (key === '$') {
+        // Last cell of current row
+        if (currentCell) {
+          var rc2 = rowCells(currentCell.parentElement);
+          if (rc2.length) setCellCursor(rc2[rc2.length - 1]);
+        }
+        e.preventDefault();
+      }
+      return;
+    }
+
+    // --- Caret mode (char-level cursor inside a single block) ---
+    if (mode === 'caret') {
+      if (key === 'h') { moveCaret(-1); e.preventDefault(); }
+      else if (key === 'l') { moveCaret(1); e.preventDefault(); }
+      else if (key === 'w') { moveCaretWord(1); e.preventDefault(); }
+      else if (key === 'b') { moveCaretWord(-1); e.preventDefault(); }
+      else if (key === 'j') { moveCaretLine(1); e.preventDefault(); }
+      else if (key === 'k') { moveCaretLine(-1); e.preventDefault(); }
+      else if (key === '0') { moveCaretLineEnd(false); e.preventDefault(); }
+      else if (key === '$') { moveCaretLineEnd(true); e.preventDefault(); }
+      else if (key === 'g') {
+        if (pendingG) {
+          setCaretLinear(0);
+          pendingG = false;
+        } else {
+          pendingG = true;
+          setTimeout(function() { pendingG = false; }, 500);
+        }
+        e.preventDefault();
+      }
+      else if (key === 'G') {
+        var nodesG = caretTextNodes(caretBlock);
+        setCaretLinear(caretTotalLen(nodesG));
+        e.preventDefault();
+      }
+      else if (key === 'v') {
+        if (caretAnchor) {
+          // Already in caret-visual: collapse back to caret
+          caretAnchor = null;
+          document.body.classList.remove('vim-mode-caret-visual');
+          window.getSelection().removeAllRanges();
+          updateIndicator();
+        } else {
+          startCaretVisual();
+        }
+        e.preventDefault();
+      }
+      else if (key === 'c') { commentFromCaret(); e.preventDefault(); }
+      else if (key === 'Escape') {
+        if (caretAnchor) {
+          // Cancel selection only
+          caretAnchor = null;
+          document.body.classList.remove('vim-mode-caret-visual');
+          window.getSelection().removeAllRanges();
+          updateIndicator();
+        } else if (cellTable) {
+          // Came from cell mode — return there
+          var savedTable = cellTable;
+          var savedCell = caretBlock;
+          // exitCaret with cell return doesn't restore cell highlight by itself
+          exitCaret('cell');
+          // Re-establish cell cursor on the block we were caret-ing
+          setCellCursor(savedCell);
+        } else {
+          exitCaret('normal');
+        }
+        e.preventDefault();
+      }
+      return;
+    }
   }
 
   // --- Search input handler ---
@@ -1854,6 +2452,14 @@ _VIM_JS = """\
       cursorIdx = -1;
       clearVisual();
       closeSearch();
+      // Tear down caret + cell modes if active
+      if (caretEl) caretEl.style.display = 'none';
+      document.body.classList.remove('vim-mode-caret-visual');
+      window.getSelection().removeAllRanges();
+      if (currentCell) currentCell.classList.remove('vim-cell-cursor');
+      caretBlock = null; caretNode = null; caretOffset = 0;
+      caretAnchor = null; caretCol = null;
+      currentCell = null; cellTable = null;
       mode = 'normal';
       indicator.classList.remove('active');
     }
@@ -1888,13 +2494,29 @@ _VIM_JS = """\
     searchCount = searchBar.querySelector('.count');
     searchInput.addEventListener('keydown', onSearchKeyDown);
 
+    // Caret overlay (rendered when mode === 'caret')
+    caretEl = document.createElement('div');
+    caretEl.id = 'vim-caret';
+    document.body.appendChild(caretEl);
+
     // Key listener
     document.addEventListener('keydown', onKeyDown);
+
+    // Reposition caret on scroll/resize
+    window.addEventListener('scroll', function() { if (mode === 'caret') renderCaret(); }, true);
+    window.addEventListener('resize', function() { if (mode === 'caret') renderCaret(); });
 
     // Click to move cursor
     document.addEventListener('click', function(e) {
       if (!enabled) return;
       if (e.target.closest('#vim-toggle, #vim-search-bar, .comment-popover, .comment-form, #comment-btn, .comment-count-badge, .comment-panel')) return;
+      // Click in caret/cell mode exits to normal block mode at the clicked block
+      if (mode === 'caret') {
+        if (cellTable) { currentCell = null; cellTable = null; }
+        exitCaret('normal');
+      } else if (mode === 'cell') {
+        exitCell();
+      }
       var block = e.target.closest('[data-source-lines]');
       if (!block) return;
       var idx = blocks.indexOf(block);
