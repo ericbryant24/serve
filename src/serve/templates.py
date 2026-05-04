@@ -1724,6 +1724,53 @@ _VIM_JS = """\
     }
   }
 
+  function moveCaretWordEnd(direction) {
+    // 'e' / 'ge': move to end (after last char) of current/next word, or
+    // end of previous word when going backward. Punct runs count as words.
+    var nodes = caretTextNodes(caretBlock);
+    var text = '';
+    for (var i = 0; i < nodes.length; i++) text += nodes[i].textContent;
+    var WORD = /\\w/;
+    var SPACE = /\\s/;
+    var q = caretCurrentLinear();
+    if (direction > 0) {
+      // Skip whitespace forward
+      while (q < text.length && SPACE.test(text.charAt(q))) q++;
+      if (q >= text.length) { setCaretLinear(text.length); return; }
+      var ch = text.charAt(q);
+      var wordy = WORD.test(ch);
+      // Advance through current run; stop at run boundary or whitespace
+      while (q < text.length) {
+        var c = text.charAt(q);
+        if (SPACE.test(c)) break;
+        if (wordy ? !WORD.test(c) : WORD.test(c)) break;
+        q++;
+      }
+      setCaretLinear(q);
+    } else {
+      // 'ge': end of previous word (caret AFTER last char of prev word)
+      if (q === 0) { setCaretLinear(0); return; }
+      q--;
+      // If currently inside a run (word or punct), step back past its start
+      if (!SPACE.test(text.charAt(q))) {
+        var startWord = WORD.test(text.charAt(q));
+        while (q > 0) {
+          var prev = text.charAt(q - 1);
+          if (SPACE.test(prev)) break;
+          if (WORD.test(prev) !== startWord) break;
+          q--;
+        }
+        // q is now at start of current run; step into the gap before it
+        q--;
+      }
+      if (q < 0) { setCaretLinear(0); return; }
+      // Skip whitespace going back to land on last char of previous run
+      while (q > 0 && SPACE.test(text.charAt(q))) q--;
+      if (SPACE.test(text.charAt(q))) { setCaretLinear(0); return; }
+      setCaretLinear(q + 1);
+    }
+  }
+
   function moveCaretLineEnd(toEnd) {
     // 0 / $: snap to start or end of the current visual line
     var rect = caretCurrentRect();
@@ -2363,6 +2410,11 @@ _VIM_JS = """\
       else if (key === 'l') { moveCaret(1); e.preventDefault(); }
       else if (key === 'w') { moveCaretWord(1); e.preventDefault(); }
       else if (key === 'b') { moveCaretWord(-1); e.preventDefault(); }
+      else if (key === 'e') {
+        if (pendingG) { moveCaretWordEnd(-1); pendingG = false; }
+        else { moveCaretWordEnd(1); }
+        e.preventDefault();
+      }
       else if (key === 'j') { moveCaretLine(1); e.preventDefault(); }
       else if (key === 'k') { moveCaretLine(-1); e.preventDefault(); }
       else if (key === '0') { moveCaretLineEnd(false); e.preventDefault(); }
@@ -2372,6 +2424,7 @@ _VIM_JS = """\
           setCaretLinear(0);
           pendingG = false;
         } else {
+          // First 'g' — armed for 'gg' (start of block) or 'ge' (word-end back)
           pendingG = true;
           setTimeout(function() { pendingG = false; }, 500);
         }
