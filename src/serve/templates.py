@@ -2193,6 +2193,15 @@ _SIDEBAR_JS = """\
     return icons[ext] || '\\uD83D\\uDCC4';
   }
 
+  // --- Ancestor dirs of active file are open by default ---
+  var activeAncestors = {};
+  if (currentPath) {
+    var parts = currentPath.split('/');
+    for (var i = 1; i < parts.length; i++) {
+      activeAncestors[parts.slice(0, i).join('/')] = true;
+    }
+  }
+
   // --- Render tree ---
   function renderTree(items, depth) {
     var s = getState();
@@ -2201,7 +2210,8 @@ _SIDEBAR_JS = """\
       var pad = 'padding-left:' + (12 + depth * 16) + 'px;';
       if (item.type === 'dir') {
         var dirKey = 'dir:' + item.path;
-        var isOpen = s[dirKey] !== false;
+        var stored = s[dirKey];
+        var isOpen = stored === true || (stored === undefined && activeAncestors[item.path] === true);
         html += '<div class="sidebar-dir' + (isOpen ? ' open' : '') + '" style="' + pad + '" data-dir="' + item.path + '">'
           + esc(item.name) + '</div>';
         html += '<div class="sidebar-children' + (isOpen ? '' : ' collapsed') + '" data-dir-children="' + item.path + '">';
