@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,8 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Comment represents an inline comment on a document.
@@ -117,11 +117,11 @@ func ensureDocumentID(path string) (string, error) {
 }
 
 func generateShortID() string {
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return fmt.Sprintf("%x", time.Now().UnixNano())
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())[:8]
 	}
-	return strings.Replace(u.String(), "-", "", -1)[:8]
+	return hex.EncodeToString(b)
 }
 
 // ---------------------------------------------------------------------------
@@ -234,9 +234,12 @@ func (s *CommentStore) Delete(id string) (bool, error) {
 }
 
 func generateFullUUID() string {
-	u, err := uuid.NewRandom()
-	if err != nil {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
-	return u.String()
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant bits
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%12x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
