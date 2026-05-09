@@ -30,7 +30,7 @@ func watch(filePath string, onChange func(), markdownMode bool) error {
 		".svg": true, ".webp": true, ".css": true, ".js": true,
 	}
 
-	debounce := newDebouncer(300*time.Millisecond, onChange)
+	debounce := newDebouncer(500*time.Millisecond, onChange)
 	defer debounce.Stop()
 
 	for {
@@ -86,7 +86,7 @@ func watchDirectory(dir string, onChange func()) error {
 		return nil
 	})
 
-	debounce := newDebouncer(300*time.Millisecond, onChange)
+	debounce := newDebouncer(500*time.Millisecond, onChange)
 	defer debounce.Stop()
 
 	for {
@@ -135,7 +135,7 @@ func watchComments(onChange func()) error {
 		return err
 	}
 
-	debounce := newDebouncer(200*time.Millisecond, onChange)
+	debounce := newDebouncer(300*time.Millisecond, onChange)
 	defer debounce.Stop()
 
 	for {

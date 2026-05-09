@@ -505,7 +505,9 @@ func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if comment == nil {
-		http.Error(w, `{"error":"Not found"}`, 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(404)
+		w.Write([]byte(`{"error":"Not found"}`))
 		return
 	}
 	s.notifyCommentsUpdated()
@@ -521,7 +523,9 @@ func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
-		http.Error(w, `{"error":"Not found"}`, 404)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(404)
+		w.Write([]byte(`{"error":"Not found"}`))
 		return
 	}
 	s.notifyCommentsUpdated()
