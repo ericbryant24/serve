@@ -30,7 +30,7 @@ func watch(filePath string, onChange func(), markdownMode bool) error {
 		".svg": true, ".webp": true, ".css": true, ".js": true,
 	}
 
-	debounce := newDebouncer(500*time.Millisecond, onChange)
+	debounce := newDebouncer(50*time.Millisecond, onChange)
 	defer debounce.Stop()
 
 	for {
@@ -62,8 +62,39 @@ func watch(filePath string, onChange func(), markdownMode bool) error {
 	}
 }
 
+// noisyDirs are directory names that generate high-frequency writes not worth
+// watching — build artifacts, package caches, compiled bytecode.
+var noisyDirs = map[string]bool{
+	"node_modules": true,
+	"__pycache__":  true,
+	"dist":         true,
+	"build":        true,
+	"vendor":       true,
+	"target":       true,
+	".next":        true,
+	".nuxt":        true,
+	".output":      true,
+}
+
+// isIgnoredPath returns true if any path component is hidden or a noisy dir.
+func isIgnoredPath(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		if strings.HasPrefix(part, ".") || noisyDirs[part] {
+			return true
+		}
+	}
+	return false
+}
+
 // watchDirectory watches an entire directory tree for changes, calling
-// onChange whenever any non-hidden file changes.
+// onChange whenever any non-hidden, non-noisy file changes.
 func watchDirectory(dir string, onChange func()) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -71,14 +102,13 @@ func watchDirectory(dir string, onChange func()) error {
 	}
 	defer watcher.Close()
 
-	// Add root and all subdirectories
 	absRoot, _ := filepath.Abs(dir)
 	_ = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
 		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") {
+			if isIgnoredPath(path, absRoot) {
 				return filepath.SkipDir
 			}
 			_ = watcher.Add(path)
@@ -86,7 +116,7 @@ func watchDirectory(dir string, onChange func()) error {
 		return nil
 	})
 
-	debounce := newDebouncer(500*time.Millisecond, onChange)
+	debounce := newDebouncer(50*time.Millisecond, onChange)
 	defer debounce.Stop()
 
 	for {
@@ -98,12 +128,10 @@ func watchDirectory(dir string, onChange func()) error {
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
 				continue
 			}
-			// Skip hidden files
-			name := filepath.Base(event.Name)
-			if strings.HasPrefix(name, ".") {
+			if isIgnoredPath(event.Name, absRoot) {
 				continue
 			}
-			// If a new directory was created, watch it too
+			// Watch newly created subdirectories (unless ignored)
 			if event.Op&fsnotify.Create != 0 {
 				if fi, err := os.Stat(event.Name); err == nil && fi.IsDir() {
 					_ = watcher.Add(event.Name)

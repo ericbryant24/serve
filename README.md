@@ -4,46 +4,15 @@ A local document server with live reload, inline comments, and a sidebar for nav
 
 ## Install
 
-Requires Python 3.13+.
-
-### Quick install (recommended)
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you don't have it:
-
-```bash
-# macOS / Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Then install `serve`:
-
-```bash
-uv tool install git+https://github.com/ericbryant24/serve
-```
-
-This gives you the `serve` command globally. To update later:
-
-```bash
-uv tool install --force git+https://github.com/ericbryant24/serve
-```
-
-### With pip
-
-```bash
-pip install git+https://github.com/ericbryant24/serve
-```
-
-### From source
+Requires [Go](https://go.dev/dl/) 1.21+.
 
 ```bash
 git clone https://github.com/ericbryant24/serve.git
 cd serve
-uv tool install -e .
-# or: pip install -e .
+go install .
 ```
+
+This places the binary in `$(go env GOPATH)/bin`, which Go adds to your `PATH` by default.
 
 ## Usage
 
@@ -84,11 +53,11 @@ serve kill --all
 
 ## Directory Mode
 
-Pass a directory path (or no argument if there's no `index.html`) to serve all files with a sidebar navigation panel.
+Pass a directory path to serve all files with a sidebar navigation panel.
 
 - **Markdown** (`.md`) — rendered with GitHub-flavored styling + comments
 - **HTML** (`.html`, `.htm`) — served with injected reload script + comments
-- **Code files** (`.json`, `.yaml`, `.py`, `.js`, etc.) — syntax-highlighted via Pygments
+- **Code files** (`.json`, `.yaml`, `.py`, `.js`, etc.) — syntax-highlighted via Chroma
 - **PDF** (`.pdf`) — embedded viewer
 - **Plain text** (`.txt`, `.log`, etc.) — rendered in a `<pre>` block
 - **Other files** — served as raw static assets
@@ -162,7 +131,7 @@ Interactive wizard that writes the necessary skill file and instructions. Curren
 
 - Live reload via WebSocket (watches file and assets for changes)
 - Directory serving with sidebar file navigation
-- Syntax highlighting for 100+ languages via Pygments
+- Syntax highlighting for 100+ languages via Chroma
 - Mermaid diagram rendering
 - GitHub-flavored markdown styling
 - PDF embedding

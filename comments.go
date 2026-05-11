@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -131,6 +132,7 @@ func generateShortID() string {
 type CommentStore struct {
 	DocID string
 	path  string
+	mu    sync.Mutex
 }
 
 func NewCommentStore(docID string) *CommentStore {
@@ -165,10 +167,14 @@ func (s *CommentStore) save(comments []Comment) error {
 }
 
 func (s *CommentStore) List() ([]Comment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.load()
 }
 
 func (s *CommentStore) Add(text, anchorText, blockText string, lineStart, lineEnd *int, parentID *string) (*Comment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	comments, err := s.load()
 	if err != nil {
 		return nil, err
@@ -188,6 +194,8 @@ func (s *CommentStore) Add(text, anchorText, blockText string, lineStart, lineEn
 }
 
 func (s *CommentStore) Update(id string, text *string, resolved *bool) (*Comment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	comments, err := s.load()
 	if err != nil {
 		return nil, err
@@ -211,21 +219,32 @@ func (s *CommentStore) Update(id string, text *string, resolved *bool) (*Comment
 }
 
 func (s *CommentStore) Delete(id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	comments, err := s.load()
 	if err != nil {
 		return false, err
 	}
-	var filtered []Comment
+	// Collect the target and all descendants (any depth)
+	toDelete := map[string]bool{id: true}
+	for changed := true; changed; {
+		changed = false
+		for _, c := range comments {
+			if c.ParentID != nil && toDelete[*c.ParentID] && !toDelete[c.ID] {
+				toDelete[c.ID] = true
+				changed = true
+			}
+		}
+	}
 	found := false
+	filtered := []Comment{}
 	for _, c := range comments {
 		if c.ID == id {
 			found = true
-			continue
 		}
-		if c.ParentID != nil && *c.ParentID == id {
-			continue // cascade delete replies
+		if !toDelete[c.ID] {
+			filtered = append(filtered, c)
 		}
-		filtered = append(filtered, c)
 	}
 	if !found {
 		return false, nil

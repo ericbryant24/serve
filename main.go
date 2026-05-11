@@ -192,7 +192,7 @@ func resolveFile(arg string) string {
 }
 
 func printServeUsage() {
-	fmt.Print(`Usage: serve-go [file] [flags]
+	fmt.Print(`Usage: serve [file] [flags]
 
 Serve a markdown or HTML file with live reload and inline comments,
 or a directory with sidebar navigation.
@@ -208,11 +208,11 @@ Flags:
   --data-url      Generate a self-contained data URL (no server)
 
 Subcommands:
-  serve-go agent-init                   Set up agent integration
-  serve-go comments <file>              List inline comments (JSON)
-  serve-go resolve <file> <id> [id...]  Mark comments as resolved
-  serve-go list                         List running serve-go instances
-  serve-go kill <pid>... | --all        Stop running serve-go instances
+  serve agent-init                   Set up agent integration
+  serve comments <file>              List inline comments (JSON)
+  serve resolve <file> <id> [id...]  Mark comments as resolved
+  serve list                         List running serve instances
+  serve kill <pid>... | --all        Stop running serve instances
 `)
 }
 
@@ -222,7 +222,7 @@ Subcommands:
 
 func cmdComments(args []string) {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Println("Usage: serve-go comments <file>")
+		fmt.Println("Usage: serve comments <file>")
 		return
 	}
 	filePath := resolveFile(args[0])
@@ -256,7 +256,7 @@ func cmdComments(args []string) {
 
 func cmdResolve(args []string) {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: serve-go resolve <file> <id> [id...]")
+		fmt.Fprintln(os.Stderr, "Usage: serve resolve <file> <id> [id...]")
 		os.Exit(1)
 	}
 	filePath := resolveFile(args[0])

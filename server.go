@@ -24,10 +24,68 @@ var upgrader = websocket.Upgrader{
 }
 
 // ---------------------------------------------------------------------------
+// .serveignore
+// ---------------------------------------------------------------------------
+
+const defaultServeIgnore = `# .serveignore — files and directories to hide from the sidebar
+# gitignore-style patterns: trailing / matches directories only, * is a wildcard
+
+.git/
+node_modules/
+__pycache__/
+dist/
+build/
+vendor/
+target/
+*.pyc
+*.o
+*.class
+`
+
+func parseServeIgnore(content string) []string {
+	var patterns []string
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		patterns = append(patterns, line)
+	}
+	return patterns
+}
+
+func loadServeIgnore(root string) []string {
+	p := filepath.Join(root, ".serveignore")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		_ = os.WriteFile(p, []byte(defaultServeIgnore), 0644)
+		return parseServeIgnore(defaultServeIgnore)
+	}
+	return parseServeIgnore(string(data))
+}
+
+func matchesIgnorePatterns(name string, isDir bool, patterns []string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	for _, pat := range patterns {
+		dirOnly := strings.HasSuffix(pat, "/")
+		p := strings.TrimSuffix(pat, "/")
+		if dirOnly && !isDir {
+			continue
+		}
+		if matched, _ := filepath.Match(p, name); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
 // File tree
 // ---------------------------------------------------------------------------
 
-func buildFileTree(root string, rel string) []FileNode {
+func buildFileTree(root string, rel string, patterns []string) []FileNode {
 	base := root
 	if rel != "" {
 		base = filepath.Join(root, rel)
@@ -42,7 +100,7 @@ func buildFileTree(root string, rel string) []FileNode {
 
 	var dirs, files []FileNode
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") {
+		if matchesIgnorePatterns(entry.Name(), entry.IsDir(), patterns) {
 			continue
 		}
 		var relPath string
@@ -52,7 +110,7 @@ func buildFileTree(root string, rel string) []FileNode {
 			relPath = entry.Name()
 		}
 		if entry.IsDir() {
-			children := buildFileTree(root, relPath)
+			children := buildFileTree(root, relPath, patterns)
 			if len(children) > 0 {
 				dirs = append(dirs, FileNode{
 					Name:     entry.Name(),
@@ -223,17 +281,48 @@ func (s *Server) getStore(r *http.Request) *CommentStore {
 	return s.commentStore
 }
 
+// getStoreE returns the comment store or an error if the document ID cannot be
+// written (e.g. the file is read-only). Only used by write handlers.
+func (s *Server) getStoreE(r *http.Request) (*CommentStore, error) {
+	if s.mode == "directory" {
+		fp := s.fileFromRequest(r)
+		if fp == "" {
+			return nil, fmt.Errorf("file parameter missing or invalid")
+		}
+		return s.getStoreForFile(fp), nil
+	}
+	if s.commentStore == nil {
+		if s.docID == "" {
+			id, err := ensureDocumentID(s.filePath)
+			if err != nil {
+				return nil, fmt.Errorf("cannot write to document: %w", err)
+			}
+			s.docID = id
+		}
+		s.commentStore = NewCommentStore(s.docID)
+	}
+	return s.commentStore, nil
+}
+
 func (s *Server) fileFromRequest(r *http.Request) string {
 	rel := r.URL.Query().Get("file")
 	if rel == "" {
 		return ""
 	}
 	fp := filepath.Clean(filepath.Join(s.baseDir, rel))
-	if !strings.HasPrefix(fp, s.baseDir) {
+	relFP, err := filepath.Rel(s.baseDir, fp)
+	if err != nil || strings.HasPrefix(relFP, "..") {
 		return ""
 	}
 	if fi, err := os.Stat(fp); err != nil || fi.IsDir() {
 		return ""
+	}
+	// Resolve symlinks and verify the real path stays inside baseDir
+	if resolved, err := filepath.EvalSymlinks(fp); err == nil {
+		resolvedRel, relErr := filepath.Rel(s.baseDir, resolved)
+		if relErr != nil || strings.HasPrefix(resolvedRel, "..") {
+			return ""
+		}
 	}
 	return fp
 }
@@ -343,9 +432,18 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 		relPath = relPath[1:]
 	}
 	fp := filepath.Clean(filepath.Join(s.baseDir, relPath))
-	if !strings.HasPrefix(fp, s.baseDir) {
+	relFP, relErr := filepath.Rel(s.baseDir, fp)
+	if relErr != nil || strings.HasPrefix(relFP, "..") {
 		http.Error(w, "Forbidden", 403)
 		return
+	}
+	// Resolve symlinks and verify the real path stays inside baseDir
+	if resolved, err := filepath.EvalSymlinks(fp); err == nil {
+		resolvedRel, relErr := filepath.Rel(s.baseDir, resolved)
+		if relErr != nil || strings.HasPrefix(resolvedRel, "..") {
+			http.Error(w, "Forbidden", 403)
+			return
+		}
 	}
 	fi, err := os.Stat(fp)
 	if err != nil || fi.IsDir() {
@@ -355,7 +453,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 
 	ext := strings.ToLower(filepath.Ext(fp))
 	sidebar := &[2]string{s.dirName, relPath}
-	tree := buildFileTree(s.baseDir, "")
+	tree := buildFileTree(s.baseDir, "", loadServeIgnore(s.baseDir))
 
 	// Raw access
 	if r.URL.Query().Get("raw") == "1" {
@@ -430,7 +528,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFileTree(w http.ResponseWriter, r *http.Request) {
-	tree := buildFileTree(s.baseDir, "")
+	tree := buildFileTree(s.baseDir, "", loadServeIgnore(s.baseDir))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"files": tree})
 }
@@ -451,8 +549,15 @@ func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		store := s.getStoreForFile(fp)
-		comments, _ := store.List()
-		writeJSON(w, map[string]interface{}{"comments": comments})
+		dirComments, dirErr := store.List()
+		if dirErr != nil {
+			http.Error(w, "failed to load comments", 500)
+			return
+		}
+		if dirComments == nil {
+			dirComments = []Comment{}
+		}
+		writeJSON(w, map[string]interface{}{"comments": dirComments})
 		return
 	}
 	if s.docID == "" {
@@ -460,11 +565,22 @@ func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store := s.getStore(r)
-	comments, _ := store.List()
+	comments, listErr := store.List()
+	if listErr != nil {
+		http.Error(w, "failed to load comments", 500)
+		return
+	}
+	if comments == nil {
+		comments = []Comment{}
+	}
 	writeJSON(w, map[string]interface{}{"comments": comments})
 }
 
 func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
+	if s.mode == "directory" && r.URL.Query().Get("file") == "" {
+		http.Error(w, "file parameter is required in directory mode", 400)
+		return
+	}
 	var body struct {
 		Text            string  `json:"text"`
 		AnchorText      string  `json:"anchor_text"`
@@ -477,7 +593,15 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", 400)
 		return
 	}
-	store := s.getStore(r)
+	if strings.TrimSpace(body.Text) == "" {
+		http.Error(w, "text is required", 400)
+		return
+	}
+	store, storeErr := s.getStoreE(r)
+	if storeErr != nil {
+		http.Error(w, storeErr.Error(), 500)
+		return
+	}
 	comment, err := store.Add(body.Text, body.AnchorText, body.BlockText,
 		body.SourceLineStart, body.SourceLineEnd, body.ParentID)
 	if err != nil {
@@ -489,6 +613,10 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
+	if s.mode == "directory" && r.URL.Query().Get("file") == "" {
+		http.Error(w, "file parameter is required in directory mode", 400)
+		return
+	}
 	id := r.PathValue("id")
 	var body struct {
 		Text     *string `json:"text"`
@@ -496,6 +624,10 @@ func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request", 400)
+		return
+	}
+	if body.Text != nil && strings.TrimSpace(*body.Text) == "" {
+		http.Error(w, "text cannot be empty", 400)
 		return
 	}
 	store := s.getStore(r)
@@ -515,6 +647,10 @@ func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
+	if s.mode == "directory" && r.URL.Query().Get("file") == "" {
+		http.Error(w, "file parameter is required in directory mode", 400)
+		return
+	}
 	id := r.PathValue("id")
 	store := s.getStore(r)
 	found, err := store.Delete(id)
@@ -614,7 +750,7 @@ func (s *Server) Start(ctx context.Context) error {
 		if s.mode == "directory" {
 			err := watchDirectory(s.baseDir, func() {
 				s.notifyReload()
-				tree := buildFileTree(s.baseDir, "")
+				tree := buildFileTree(s.baseDir, "", loadServeIgnore(s.baseDir))
 				s.notifyFileTree(tree)
 			})
 			_ = err

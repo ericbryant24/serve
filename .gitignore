@@ -1,3 +1,6 @@
+# Go binary
+/serve
+
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -8,6 +11,7 @@ wheels/
 
 # Virtual environments
 .venv
+tests/.venv
 
 # Playwright MCP logs
 .playwright-mcp/

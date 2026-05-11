@@ -15,6 +15,7 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
 	goldmarkrenderer "github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/renderer/html"
@@ -69,23 +70,24 @@ type sourceLineTransformer struct{}
 func (t *sourceLineTransformer) Transform(doc *ast.Document, reader text.Reader, pc parser.Context) {
 	src := reader.Source()
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
 		if n.Type() != ast.TypeBlock {
 			return ast.WalkContinue, nil
 		}
 		lines := n.Lines()
-		if lines == nil || lines.Len() == 0 {
-			// For containers (blockquote, list, etc.) derive range from children
+		if lines != nil && lines.Len() > 0 {
+			// Leaf blocks: annotate on the way down (entering).
+			if entering {
+				first := lines.At(0)
+				last := lines.At(lines.Len() - 1)
+				startLine := lineNumber(src, first.Start) + 1 // 1-indexed
+				endLine := lineNumber(src, last.Stop) + 1
+				n.SetAttribute(sourceLineAttrKey, []byte(fmt.Sprintf("%d-%d", startLine, endLine)))
+			}
+		} else if !entering {
+			// Container blocks (list, blockquote, table, …): annotate on the way
+			// back up so that children are already annotated when we aggregate.
 			setSourceLinesFromChildren(n, src)
-			return ast.WalkContinue, nil
 		}
-		first := lines.At(0)
-		last := lines.At(lines.Len() - 1)
-		startLine := lineNumber(src, first.Start) + 1  // 1-indexed
-		endLine := lineNumber(src, last.Stop) + 1       // Stop is before \n
-		n.SetAttribute(sourceLineAttrKey, []byte(fmt.Sprintf("%d-%d", startLine, endLine)))
 		return ast.WalkContinue, nil
 	})
 }
@@ -157,6 +159,11 @@ func (r *sourceLineRenderer) RegisterFuncs(reg goldmarkrenderer.NodeRendererFunc
 	reg.Register(ast.KindParagraph, r.renderParagraph)
 	reg.Register(ast.KindTextBlock, r.renderTextBlock)
 	reg.Register(ast.KindThematicBreak, r.renderThematicBreak)
+	// GFM extension table nodes
+	reg.Register(extast.KindTable, r.renderTable)
+	reg.Register(extast.KindTableHeader, r.renderTableHeader)
+	reg.Register(extast.KindTableRow, r.renderTableRow)
+	reg.Register(extast.KindTableCell, r.renderTableCell)
 }
 
 func sourceAttr(n ast.Node) string {
@@ -181,12 +188,44 @@ func (r *sourceLineRenderer) renderDocument(w util.BufWriter, source []byte, nod
 	return ast.WalkContinue, nil
 }
 
+// headingSlug generates a URL-safe id from heading text (lowercase, hyphens).
+func headingSlug(node ast.Node, source []byte) string {
+	var raw strings.Builder
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || n == node {
+			return ast.WalkContinue, nil
+		}
+		if t, ok := n.(*ast.Text); ok {
+			raw.Write(t.Segment.Value(source))
+		} else if n.Kind() == ast.KindString {
+			// ast.String nodes carry Value directly (used for escaped text)
+			if s, ok2 := n.(*ast.String); ok2 {
+				raw.Write(s.Value)
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	var id strings.Builder
+	for _, r := range strings.ToLower(raw.String()) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			id.WriteRune(r)
+		case r == ' ', r == '_':
+			id.WriteRune('-')
+		}
+	}
+	return strings.Trim(id.String(), "-")
+}
+
 func (r *sourceLineRenderer) renderHeading(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	n := node.(*ast.Heading)
 	tag := fmt.Sprintf("h%d", n.Level)
 	if entering {
 		_, _ = fmt.Fprintf(w, "<%s", tag)
 		writeSourceAttr(w, n)
+		if id := headingSlug(n, source); id != "" {
+			_, _ = fmt.Fprintf(w, ` id="%s"`, id)
+		}
 		_ = w.WriteByte('>')
 	} else {
 		_, _ = fmt.Fprintf(w, "</%s>\n", tag)
@@ -243,7 +282,7 @@ func (r *sourceLineRenderer) renderFencedCodeBlock(w util.BufWriter, source []by
 
 	// Mermaid
 	if lang == "mermaid" {
-		_, _ = fmt.Fprintf(w, "<pre class=\"mermaid\"%s>%s</pre>\n", dataAttr, htmlEscapeString(code))
+		_, _ = fmt.Fprintf(w, "<pre class=\"mermaid\"%s>%s</pre>\n", dataAttr, code)
 		return ast.WalkSkipChildren, nil
 	}
 
@@ -372,6 +411,64 @@ func (r *sourceLineRenderer) renderThematicBreak(w util.BufWriter, source []byte
 		_, _ = w.WriteString("<hr")
 		writeSourceAttr(w, node)
 		_, _ = w.WriteString(" />\n")
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *sourceLineRenderer) renderTable(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		_, _ = w.WriteString("<table")
+		writeSourceAttr(w, node)
+		_, _ = w.WriteString(">\n")
+	} else {
+		_, _ = w.WriteString("</table>\n")
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *sourceLineRenderer) renderTableHeader(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		_, _ = w.WriteString("<thead")
+		writeSourceAttr(w, node)
+		_, _ = w.WriteString(">\n<tr>\n")
+	} else {
+		_, _ = w.WriteString("</tr>\n</thead>\n")
+		if node.NextSibling() != nil {
+			_, _ = w.WriteString("<tbody>\n")
+		}
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *sourceLineRenderer) renderTableRow(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		_, _ = w.WriteString("<tr")
+		writeSourceAttr(w, node)
+		_, _ = w.WriteString(">\n")
+	} else {
+		_, _ = w.WriteString("</tr>\n")
+		if node.Parent().LastChild() == node {
+			_, _ = w.WriteString("</tbody>\n")
+		}
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *sourceLineRenderer) renderTableCell(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	n := node.(*extast.TableCell)
+	tag := "td"
+	if n.Parent().Kind() == extast.KindTableHeader {
+		tag = "th"
+	}
+	if entering {
+		_, _ = fmt.Fprintf(w, "<%s", tag)
+		writeSourceAttr(w, n)
+		if n.Alignment != extast.AlignNone {
+			_, _ = fmt.Fprintf(w, ` style="text-align:%s"`, n.Alignment.String())
+		}
+		_ = w.WriteByte('>')
+	} else {
+		_, _ = fmt.Fprintf(w, "</%s>\n", tag)
 	}
 	return ast.WalkContinue, nil
 }

@@ -55,6 +55,20 @@ func faviconLink(path string) string {
 }
 
 // ---------------------------------------------------------------------------
+// Link behaviour script
+// ---------------------------------------------------------------------------
+
+const linkScript = `(function() {
+  document.querySelectorAll('#serve-content a[href]').forEach(function(a) {
+    var href = a.getAttribute('href');
+    if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+})();`
+
+// ---------------------------------------------------------------------------
 // Reload script (soft reload — no full-page flash)
 // ---------------------------------------------------------------------------
 
@@ -563,8 +577,7 @@ const vimCSS = `
     .vim-search-match { background: rgba(234, 179, 8, 0.3) !important; border-radius: 2px; }
     .vim-search-current { background: rgba(234, 179, 8, 0.6) !important; outline: 2px solid #eab308; outline-offset: 1px; border-radius: 2px; }
     .vim-cell-cursor { outline: 2px solid #3b82f6; outline-offset: -2px; background: rgba(59, 130, 246, 0.06) !important; }
-    #vim-caret { position: absolute; width: 2px; background: #3b82f6; z-index: 9998; pointer-events: none; display: none; animation: vim-caret-blink 1s steps(2, start) infinite; }
-    @keyframes vim-caret-blink { to { visibility: hidden; } }
+    #vim-caret { position: absolute; width: 2px; background: #3b82f6; z-index: 9998; pointer-events: none; display: none; }
     #vim-indicator.caret { background: #047857; }
     #vim-indicator.cell { background: #6d28d9; }
     .vim-mode-caret-visual ::selection { background: rgba(59, 130, 246, 0.35); }`
@@ -629,6 +642,7 @@ const vimJS = `(function() {
   function caretCurrentLinear(){var nodes=caretTextNodes(caretBlock);return caretLinearPos(nodes,caretNode,caretOffset);}
   function moveCaret(delta){setCaretLinear(caretCurrentLinear()+delta);}
   function moveCaretWord(dir){var nodes=caretTextNodes(caretBlock);var text='';for(var i=0;i<nodes.length;i++)text+=nodes[i].textContent;var pos=caretCurrentLinear();var WORD=/\w/,SPACE=/\s/;if(dir>0){var n=pos;var initial=text.charAt(n);var isWord=WORD.test(initial);var isSpace=SPACE.test(initial);while(n<text.length){var c=text.charAt(n);if(isSpace){if(!SPACE.test(c))break;}else if(isWord){if(!WORD.test(c))break;}else{if(WORD.test(c)||SPACE.test(c))break;}n++;}while(n<text.length&&SPACE.test(text.charAt(n)))n++;setCaretLinear(n);}else{var m=pos;if(m>0)m--;while(m>0&&SPACE.test(text.charAt(m)))m--;var ch=text.charAt(m);var wordy=WORD.test(ch);while(m>0){var prev=text.charAt(m-1);if(wordy&&!WORD.test(prev))break;if(!wordy&&(WORD.test(prev)||SPACE.test(prev)))break;m--;}setCaretLinear(m);}}
+  function moveCaretWordEnd(dir){var nodes=caretTextNodes(caretBlock);var text='';for(var i=0;i<nodes.length;i++)text+=nodes[i].textContent;var WORD=/\w/,SPACE=/\s/;var q=caretCurrentLinear();if(dir>0){while(q<text.length&&SPACE.test(text.charAt(q)))q++;if(q>=text.length){setCaretLinear(text.length);return;}var wordy=WORD.test(text.charAt(q));while(q<text.length){var c=text.charAt(q);if(SPACE.test(c))break;if(wordy?!WORD.test(c):WORD.test(c))break;q++;}setCaretLinear(q);}else{if(q===0){setCaretLinear(0);return;}q--;if(!SPACE.test(text.charAt(q))){var startWord=WORD.test(text.charAt(q));while(q>0){var prev=text.charAt(q-1);if(SPACE.test(prev))break;if(WORD.test(prev)!==startWord)break;q--;}q--;}if(q<0){setCaretLinear(0);return;}while(q>0&&SPACE.test(text.charAt(q)))q--;if(SPACE.test(text.charAt(q))){setCaretLinear(0);return;}setCaretLinear(q+1);}}
   function enterCaret(block){if(!block)return;caretBlock=block;var nodes=caretTextNodes(block);if(nodes.length===0)return;caretNode=nodes[0];caretOffset=0;caretAnchor=null;caretCol=null;mode='caret';if(cursorIdx>=0&&cursorIdx<blocks.length)blocks[cursorIdx].classList.remove('vim-cursor');window.getSelection().removeAllRanges();document.body.classList.remove('vim-mode-caret-visual');renderCaret();updateIndicator();}
   function exitCaret(returnTo){caretEl.style.display='none';document.body.classList.remove('vim-mode-caret-visual');window.getSelection().removeAllRanges();caretBlock=null;caretNode=null;caretOffset=0;caretAnchor=null;caretCol=null;mode=returnTo||'normal';if(mode==='normal'&&cursorIdx>=0&&cursorIdx<blocks.length)blocks[cursorIdx].classList.add('vim-cursor');updateIndicator();}
   function commentFromCaret(){if(!caretBlock)return;var anchorText=caretAnchor?window.getSelection().toString()||caretBlock.textContent.trim():caretBlock.textContent.trim();var selInfo={anchorText:anchorText,blockText:caretBlock.textContent.trim(),sourceLines:nearestSourceLines(caretBlock),block:caretBlock};if(cellTable){currentCell=null;cellTable=null;}exitCaret('normal');if(typeof window.__serveOpenCommentForm==='function')window.__serveOpenCommentForm(selInfo);}
@@ -702,6 +716,7 @@ const vimJS = `(function() {
       else if(key==='l'){moveCaret(1);e.preventDefault();}
       else if(key==='w'){moveCaretWord(1);e.preventDefault();}
       else if(key==='b'){moveCaretWord(-1);e.preventDefault();}
+      else if(key==='e'){if(pendingG){moveCaretWordEnd(-1);pendingG=false;}else{moveCaretWordEnd(1);}e.preventDefault();}
       else if(key==='g'){if(pendingG){setCaretLinear(0);pendingG=false;}else{pendingG=true;setTimeout(function(){pendingG=false;},500);}e.preventDefault();}
       else if(key==='G'){var nodesG=caretTextNodes(caretBlock);setCaretLinear(caretTotalLen(nodesG));e.preventDefault();}
       else if(key==='v'){if(caretAnchor){caretAnchor=null;document.body.classList.remove('vim-mode-caret-visual');window.getSelection().removeAllRanges();updateIndicator();}else{caretAnchor={node:caretNode,offset:caretOffset};document.body.classList.add('vim-mode-caret-visual');var sel=window.getSelection();try{sel.setBaseAndExtent(caretAnchor.node,caretAnchor.offset,caretNode,caretOffset);}catch(e2){}updateIndicator();}e.preventDefault();}
@@ -914,8 +929,10 @@ const headTemplate = `<!DOCTYPE html>
 
 const headClose = `  </style>
   <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    window.mermaid = mermaid;
+    mermaid.initialize({ startOnLoad: false, theme: 'default' });
+    mermaid.run({ querySelector: 'pre.mermaid' });
   </script>
 </head>
 <body>
@@ -998,6 +1015,7 @@ func buildScripts(opts wrapOptions) string {
 	var b strings.Builder
 	b.WriteString("<script>" + reloadScript + "</script>\n")
 	b.WriteString("<script>" + commentJS + "</script>\n")
+	b.WriteString("<script>" + linkScript + "</script>\n")
 	b.WriteString("<script>" + vimJS + "</script>\n")
 	b.WriteString("<script>" + zoomJS + "</script>\n")
 	if opts.isMarp {
@@ -1295,6 +1313,7 @@ func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, fa
 		scriptParts.WriteString(commentHTML + "\n")
 		scriptParts.WriteString("<script>" + reloadScript + "</script>\n")
 		scriptParts.WriteString("<script>" + commentJS + "</script>\n")
+		scriptParts.WriteString("<script>" + linkScript + "</script>\n")
 		scriptParts.WriteString("<script>" + vimJS + "</script>\n")
 		if sidebar != nil {
 			scriptParts.WriteString("<script>" + sidebarJS + "</script>\n")
