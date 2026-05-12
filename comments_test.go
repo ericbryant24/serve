@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -168,35 +169,62 @@ func TestDeleteLeafLeavesParent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// documentIDFromPath
+// storeKeyForFile
 // ---------------------------------------------------------------------------
 
-func TestDocumentIDFromPath_Deterministic(t *testing.T) {
-	p := "/some/path/doc.md"
-	if a, b := documentIDFromPath(p), documentIDFromPath(p); a != b {
-		t.Fatalf("documentIDFromPath not deterministic: %q vs %q", a, b)
-	}
-}
-
-func TestDocumentIDFromPath_DifferentPaths(t *testing.T) {
-	a := documentIDFromPath("/foo/a.md")
-	b := documentIDFromPath("/foo/b.md")
-	if a == b {
-		t.Fatal("different paths should produce different IDs")
-	}
-}
-
-func TestDocumentIDFromPath_NoFileWrite(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "doc.md")
-	if err := os.WriteFile(path, []byte("# Hello\n"), 0644); err != nil {
+func tempFile(t *testing.T, name string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(p, []byte("# test\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(path)
-	documentIDFromPath(path)
-	after, _ := os.ReadFile(path)
+	return p
+}
+
+func TestStoreKeyForFile_Deterministic(t *testing.T) {
+	f := tempFile(t, "doc.md")
+	if a, b := storeKeyForFile(f), storeKeyForFile(f); a != b {
+		t.Fatalf("not deterministic: %q vs %q", a, b)
+	}
+}
+
+func TestStoreKeyForFile_DifferentFiles(t *testing.T) {
+	if storeKeyForFile(tempFile(t, "a.md")) == storeKeyForFile(tempFile(t, "b.md")) {
+		t.Fatal("different files should produce different keys")
+	}
+}
+
+func TestStoreKeyForFile_NoFileWrite(t *testing.T) {
+	f := tempFile(t, "doc.md")
+	before, _ := os.ReadFile(f)
+	storeKeyForFile(f)
+	after, _ := os.ReadFile(f)
 	if string(before) != string(after) {
-		t.Fatal("documentIDFromPath must not modify the file")
+		t.Fatal("storeKeyForFile must not modify the file")
+	}
+}
+
+func TestStoreKeyForFile_RenamePreservesKey(t *testing.T) {
+	dir := t.TempDir()
+	orig := filepath.Join(dir, "orig.md")
+	renamed := filepath.Join(dir, "renamed.md")
+	if err := os.WriteFile(orig, []byte("# Hello\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	before := storeKeyForFile(orig)
+	if err := os.Rename(orig, renamed); err != nil {
+		t.Fatal(err)
+	}
+	after := storeKeyForFile(renamed)
+	// On Unix, inodes survive renames so the key must be identical.
+	// On Windows the fallback (path hash) differs — detect via Stat_t assertion.
+	if before != after {
+		fi, _ := os.Stat(renamed)
+		if fi != nil {
+			if _, ok := fi.Sys().(*syscall.Stat_t); ok {
+				t.Fatalf("rename changed key on Unix: %q → %q", before, after)
+			}
+		}
 	}
 }
 

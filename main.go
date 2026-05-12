@@ -229,7 +229,7 @@ func cmdComments(args []string) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	docID := documentIDFromPath(filePath)
+	docID := storeKeyForFile(filePath)
 	store := NewCommentStore(docID, commentStoreDir())
 	comments, err := store.List()
 	if err != nil {
@@ -262,7 +262,7 @@ func cmdResolve(args []string) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	store := NewCommentStore(documentIDFromPath(filePath), commentStoreDir())
+	store := NewCommentStore(storeKeyForFile(filePath), commentStoreDir())
 	failed := false
 	for _, id := range args[1:] {
 		resolved := true

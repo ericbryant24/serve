@@ -262,7 +262,7 @@ func (s *Server) getStoreForFile(fp string) (*CommentStore, error) {
 	if store, ok := s.commentStores[fp]; ok {
 		return store, nil
 	}
-	store := NewCommentStore(documentIDFromPath(fp), commentStoreDir())
+	store := NewCommentStore(storeKeyForFile(fp), commentStoreDir())
 	s.commentStores[fp] = store
 	return store, nil
 }
@@ -278,7 +278,7 @@ func (s *Server) getStore(r *http.Request) (*CommentStore, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.commentStore == nil {
-		s.commentStore = NewCommentStore(documentIDFromPath(s.filePath), commentStoreDir())
+		s.commentStore = NewCommentStore(storeKeyForFile(s.filePath), commentStoreDir())
 	}
 	return s.commentStore, nil
 }
@@ -777,7 +777,7 @@ func (s *Server) Start(ctx context.Context) error {
 // ---------------------------------------------------------------------------
 
 func commentsForPath(fp string) []Comment {
-	store := NewCommentStore(documentIDFromPath(fp), commentStoreDir())
+	store := NewCommentStore(storeKeyForFile(fp), commentStoreDir())
 	comments, _ := store.List()
 	return comments
 }
