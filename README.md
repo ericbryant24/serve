@@ -16,6 +16,8 @@ curl -sSL https://raw.githubusercontent.com/ericbryant24/serve/main/install.sh |
 irm https://raw.githubusercontent.com/ericbryant24/serve/main/install.ps1 | iex
 ```
 
+Re-run the same command to update to the latest version.
+
 ### Manual download
 
 Go to [Releases](https://github.com/ericbryant24/serve/releases/latest), download the archive for your platform, extract it, and place the `serve` binary somewhere on your `PATH`.
