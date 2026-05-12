@@ -229,12 +229,7 @@ func cmdComments(args []string) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	docID := getDocumentID(filePath)
-	if docID == "" {
-		data, _ := json.MarshalIndent(map[string]interface{}{"comments": []interface{}{}}, "", "  ")
-		fmt.Println(string(data))
-		return
-	}
+	docID := documentIDFromPath(filePath)
 	store := NewCommentStore(docID, commentStoreDir())
 	comments, err := store.List()
 	if err != nil {
@@ -267,12 +262,7 @@ func cmdResolve(args []string) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	docID := getDocumentID(filePath)
-	if docID == "" {
-		fmt.Fprintln(os.Stderr, "Error: no comments found for this document")
-		os.Exit(1)
-	}
-	store := NewCommentStore(docID, commentStoreDir())
+	store := NewCommentStore(documentIDFromPath(filePath), commentStoreDir())
 	failed := false
 	for _, id := range args[1:] {
 		resolved := true

@@ -1,14 +1,13 @@
 package main
 
 import (
+	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 )
@@ -39,97 +38,18 @@ func homeDir() string {
 }
 
 // ---------------------------------------------------------------------------
-// Document ID management
+// Document ID — derived from the absolute file path, never written to disk
 // ---------------------------------------------------------------------------
 
-var (
-	mdFrontmatterRe = regexp.MustCompile(`(?s)^---\s*\n(.*?\n)---\s*\n`)
-	htmlCommentIDRe = regexp.MustCompile(`(?i)<meta\s+name=["']comment-id["']\s+content=["']([^"']+)["']`)
-	docIDValidRe    = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-)
-
-func getDocumentID(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	content := string(data)
-	ext := strings.ToLower(filepath.Ext(path))
-
-	if ext == ".md" {
-		m := mdFrontmatterRe.FindStringSubmatch(content)
-		if m != nil {
-			for _, line := range strings.Split(m[1], "\n") {
-				if strings.HasPrefix(line, "comment-id:") {
-					return strings.TrimSpace(strings.TrimPrefix(line, "comment-id:"))
-				}
-			}
-		}
-		return ""
-	}
-
-	m := htmlCommentIDRe.FindStringSubmatch(content)
-	if m != nil {
-		return m[1]
-	}
-	return ""
+// documentIDFromPath returns a stable 8-hex-char ID for a file derived from
+// its absolute path. Comments are stored under this key; renaming the file
+// severs the association (acceptable — no source files are ever modified).
+func documentIDFromPath(path string) string {
+	abs, _ := filepath.Abs(path)
+	h := md5.Sum([]byte(abs))
+	return hex.EncodeToString(h[:4])
 }
 
-func setDocumentID(path, docID string) error {
-	if !docIDValidRe.MatchString(docID) {
-		return fmt.Errorf("invalid document ID: %q", docID)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	content := string(data)
-	ext := strings.ToLower(filepath.Ext(path))
-
-	if ext == ".md" {
-		m := mdFrontmatterRe.FindStringSubmatchIndex(content)
-		if m != nil {
-			// Append to existing frontmatter
-			fmEnd := m[1]
-			fmBody := content[m[2]:m[3]]
-			newFM := fmt.Sprintf("---\n%scomment-id: %s\n---\n", fmBody, docID)
-			content = newFM + content[fmEnd:]
-		} else {
-			content = fmt.Sprintf("---\ncomment-id: %s\n---\n\n%s", docID, content)
-		}
-	} else {
-		tag := fmt.Sprintf(`<meta name="comment-id" content="%s">`, docID)
-		switch {
-		case strings.Contains(content, "<head>"):
-			content = strings.Replace(content, "<head>", "<head>\n  "+tag, 1)
-		case strings.Contains(content, "<HEAD>"):
-			content = strings.Replace(content, "<HEAD>", "<HEAD>\n  "+tag, 1)
-		default:
-			content = tag + "\n" + content
-		}
-	}
-
-	return os.WriteFile(path, []byte(content), 0644)
-}
-
-func ensureDocumentID(path string) (string, error) {
-	if id := getDocumentID(path); id != "" {
-		return id, nil
-	}
-	id := generateShortID()
-	if err := setDocumentID(path, id); err != nil {
-		return "", err
-	}
-	return id, nil
-}
-
-func generateShortID() string {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("%x", time.Now().UnixNano())[:8]
-	}
-	return hex.EncodeToString(b)
-}
 
 // ---------------------------------------------------------------------------
 // Comment store

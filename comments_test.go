@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -169,87 +168,35 @@ func TestDeleteLeafLeavesParent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Document ID management
+// documentIDFromPath
 // ---------------------------------------------------------------------------
 
-func TestSetAndGetDocumentIDMarkdown(t *testing.T) {
+func TestDocumentIDFromPath_Deterministic(t *testing.T) {
+	p := "/some/path/doc.md"
+	if a, b := documentIDFromPath(p), documentIDFromPath(p); a != b {
+		t.Fatalf("documentIDFromPath not deterministic: %q vs %q", a, b)
+	}
+}
+
+func TestDocumentIDFromPath_DifferentPaths(t *testing.T) {
+	a := documentIDFromPath("/foo/a.md")
+	b := documentIDFromPath("/foo/b.md")
+	if a == b {
+		t.Fatal("different paths should produce different IDs")
+	}
+}
+
+func TestDocumentIDFromPath_NoFileWrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")
-	if err := os.WriteFile(path, []byte("# Hello\n\nSome content.\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("# Hello\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-
-	id, err := ensureDocumentID(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id == "" {
-		t.Fatal("expected non-empty ID")
-	}
-
-	got := getDocumentID(path)
-	if got != id {
-		t.Fatalf("getDocumentID returned %q, want %q", got, id)
-	}
-
-	// Second call must return the same ID (idempotent)
-	id2, err := ensureDocumentID(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id2 != id {
-		t.Fatalf("ensureDocumentID not idempotent: got %q then %q", id, id2)
-	}
-}
-
-func TestSetAndGetDocumentIDHTML(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "page.html")
-	if err := os.WriteFile(path, []byte("<html><head></head><body>hi</body></html>"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	id, err := ensureDocumentID(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	content, _ := os.ReadFile(path)
-	if !strings.Contains(string(content), `name="comment-id"`) {
-		t.Fatal("comment-id meta tag not injected into HTML")
-	}
-
-	got := getDocumentID(path)
-	if got != id {
-		t.Fatalf("getDocumentID returned %q, want %q", got, id)
-	}
-}
-
-func TestGetDocumentIDMissingReturnsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "fresh.md")
-	if err := os.WriteFile(path, []byte("# No ID yet\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	id := getDocumentID(path)
-	if id != "" {
-		t.Fatalf("expected empty string, got %q", id)
-	}
-}
-
-func TestEnsureDocumentIDReadOnly(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "readonly.md")
-	if err := os.WriteFile(path, []byte("# Read only\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	os.Chmod(path, 0444)
-	t.Cleanup(func() { os.Chmod(path, 0644) })
-
-	_, err := ensureDocumentID(path)
-	if err == nil {
-		t.Fatal("expected error for read-only file, got nil")
+	before, _ := os.ReadFile(path)
+	documentIDFromPath(path)
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("documentIDFromPath must not modify the file")
 	}
 }
 

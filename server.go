@@ -170,7 +170,6 @@ type Server struct {
 	baseDir       string
 	dirName       string
 	faviconSeed   string
-	docID         string
 
 	mu            sync.Mutex
 	wsClients     map[*websocket.Conn]bool
@@ -206,7 +205,6 @@ func NewServer(filePath string, mode, host string, port int) *Server {
 		s.filePath = abs
 		s.baseDir = filepath.Dir(abs)
 		s.faviconSeed = abs
-		s.docID = getDocumentID(abs)
 	}
 	return s
 }
@@ -264,15 +262,7 @@ func (s *Server) getStoreForFile(fp string) (*CommentStore, error) {
 	if store, ok := s.commentStores[fp]; ok {
 		return store, nil
 	}
-	docID := getDocumentID(fp)
-	if docID == "" {
-		var err error
-		docID, err = ensureDocumentID(fp)
-		if err != nil {
-			return nil, err
-		}
-	}
-	store := NewCommentStore(docID, commentStoreDir())
+	store := NewCommentStore(documentIDFromPath(fp), commentStoreDir())
 	s.commentStores[fp] = store
 	return store, nil
 }
@@ -288,14 +278,7 @@ func (s *Server) getStore(r *http.Request) (*CommentStore, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.commentStore == nil {
-		if s.docID == "" {
-			id, err := ensureDocumentID(s.filePath)
-			if err != nil {
-				return nil, fmt.Errorf("cannot write to document: %w", err)
-			}
-			s.docID = id
-		}
-		s.commentStore = NewCommentStore(s.docID, commentStoreDir())
+		s.commentStore = NewCommentStore(documentIDFromPath(s.filePath), commentStoreDir())
 	}
 	return s.commentStore, nil
 }
@@ -358,23 +341,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 	var htmlStr string
 	var err error
-
-	// Ensure the document ID (frontmatter) exists before rendering.
-	// If we defer this to first-comment creation the frontmatter insertion
-	// shifts all source line numbers, making previously-stored line hints
-	// point to the wrong elements.
-	if s.mode == "markdown" {
-		s.mu.Lock()
-		needsID := s.docID == ""
-		s.mu.Unlock()
-		if needsID {
-			if id, idErr := ensureDocumentID(s.filePath); idErr == nil {
-				s.mu.Lock()
-				s.docID = id
-				s.mu.Unlock()
-			}
-		}
-	}
 
 	if s.mode == "markdown" {
 		if isMarpDoc(s.filePath) && r.URL.Query().Get("present") == "1" {
@@ -489,9 +455,6 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 
 	switch ext {
 	case ".md":
-		// Ensure document ID before rendering so line numbers are stable
-		// from the first view (see handlePage for the same rationale).
-		ensureDocumentID(fp) //nolint:errcheck — commenting still works without an ID
 		marp := isMarpDoc(fp)
 		var htmlStr string
 		if marp && r.URL.Query().Get("present") == "1" {
@@ -511,7 +474,6 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, htmlStr)
 
 	case ".html", ".htm":
-		ensureDocumentID(fp) //nolint:errcheck
 		data, rerr := os.ReadFile(fp)
 		if rerr != nil {
 			http.Error(w, rerr.Error(), 500)
@@ -562,14 +524,10 @@ func (s *Server) handleFileTree(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 	if s.mode == "directory" {
-		fp := s.fileFromRequest(r)
-		if fp == "" || getDocumentID(fp) == "" {
+		if s.fileFromRequest(r) == "" {
 			writeJSON(w, map[string]interface{}{"comments": []interface{}{}})
 			return
 		}
-	} else if s.docID == "" {
-		writeJSON(w, map[string]interface{}{"comments": []interface{}{}})
-		return
 	}
 	store, err := s.getStore(r)
 	if err != nil {
@@ -818,14 +776,8 @@ func (s *Server) Start(ctx context.Context) error {
 // Comment anchor injection
 // ---------------------------------------------------------------------------
 
-// commentsForPath returns the comments for a file without modifying it.
-// Returns nil if the file has no comment-id or the store is unreadable.
 func commentsForPath(fp string) []Comment {
-	docID := getDocumentID(fp)
-	if docID == "" {
-		return nil
-	}
-	store := NewCommentStore(docID, commentStoreDir())
+	store := NewCommentStore(documentIDFromPath(fp), commentStoreDir())
 	comments, _ := store.List()
 	return comments
 }
