@@ -110,12 +110,9 @@ curl -X DELETE http://localhost:8000/api/comments/<id>
 
 ### How Comments Are Stored
 
-Each document gets a unique `comment-id` embedded in the file on first comment:
+Comments are stored centrally at `~/.serve/comments/<key>.json`. **Source files are never modified.**
 
-- **Markdown**: `comment-id` field in YAML frontmatter
-- **HTML**: `<meta name="comment-id">` tag
-
-Comments are stored centrally at `~/.serve/comments/<doc-id>.json`. Because the ID is embedded in the file, comments survive file moves and renames.
+The store key is derived from the file's inode and device number (Unix/macOS/Linux), so comments automatically follow the file when you rename or move it with `mv` or `git mv`. On Windows the key falls back to a hash of the absolute path.
 
 ## Agent Integration
 

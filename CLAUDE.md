@@ -8,20 +8,23 @@ Markdown/HTML document server with live reload and inline comments.
 main.go           — CLI entry point, subcommand dispatch (comments, resolve, list, kill, agent-init)
 server.go         — net/http server: page, WebSocket, static files, comment API
 renderer.go       — goldmark rendering with source line annotations, Chroma syntax highlighting
-templates.go      — HTML template, comment CSS/JS, reload script
-comments.go       — Comment model, document ID management, JSON persistence
+templates.go      — html/template page builder (wrapMarkdown, wrapCode, etc.) + inject helpers
+static/page.gohtml — HTML page skeleton (embedded via go:embed)
+static/*.css/js   — Comment UI, vim mode, zoom, sidebar, presentation assets (embedded)
+comments.go       — Comment model, inode-based store key, JSON persistence
 watcher.go        — fsnotify file watcher with trailing-edge debounce (50ms)
 instances.go      — Process discovery via ps/lsof (no registry)
 marp.go           — Marp slide deck support
 dataurl.go        — Self-contained data URL generation
 agent_init.go     — Interactive agent integration setup wizard
-comments_test.go  — Unit tests for comment store, document ID, watcher filter
+comments_test.go  — Unit tests for comment store, store key, watcher filter
+templates_test.go — Unit tests for page rendering, XSS escaping, wrap functions
 ```
 
 ## Key Concepts
 
-- **Document ID**: Each commented document gets a `comment-id` embedded in the file (YAML frontmatter for .md, meta tag for .html). This ties comments to the document regardless of file path.
-- **Comment storage**: `~/.serve/comments/<doc-id>.json` — central location, not alongside documents.
+- **Comment storage**: `~/.serve/comments/<key>.json` — central location, never alongside documents. The key is derived from the file's inode+device number on Unix (so comments survive `mv`/`git mv`), falling back to a path hash on Windows. Source files are never modified.
+- **Store key**: `storeKeyForFile(path)` in `comments.go` — returns `"%x-%x" % (dev, ino)` on Unix via `fi.Sys().(*syscall.Stat_t)`, or `md5(abs_path)[:4]` as fallback.
 - **Source line annotations**: The renderer adds `data-source-lines` attributes to block elements so the browser JS can map text selections back to source line numbers.
 - **Frontmatter stripping**: `renderer.go` strips YAML frontmatter before parsing, replacing with blank lines to preserve line numbering.
 - **Directory mode**: When given a directory, the server uses a catch-all route to render files by type (markdown, HTML, code, PDF, plain text) and injects a sidebar for navigation. The sidebar state (expand/collapse, visibility) is persisted in localStorage. Comments work per-file via a `?file=` query param on the API.
@@ -62,7 +65,7 @@ Always build both: `./serve` is what the test suite uses; `go install .` updates
 ## Tests
 
 ```bash
-# Go unit tests (comment store, document ID, watcher filter)
+# Go unit tests (comment store, store key, watcher filter, page template)
 go test ./...
 
 # Integration tests against the installed binary
