@@ -4,6 +4,24 @@ A local document server with live reload, inline comments, and a sidebar for nav
 
 ## Install
 
+### macOS / Linux
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ericbryant24/serve/main/install.sh | sh
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/ericbryant24/serve/main/install.ps1 | iex
+```
+
+### Manual download
+
+Go to [Releases](https://github.com/ericbryant24/serve/releases/latest), download the archive for your platform, extract it, and place the `serve` binary somewhere on your `PATH`.
+
+### Build from source
+
 Requires [Go](https://go.dev/dl/) 1.21+.
 
 ```bash
