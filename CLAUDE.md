@@ -57,6 +57,8 @@ serve kill <pid>       # stop one (also: --port N, --all, --force)
 go build -o serve . && go install .
 ```
 
+Always build both: `./serve` is what the test suite uses; `go install .` updates the binary on your PATH (`~/.local/bin/`).
+
 Always build both: `./serve` is what the test suite uses; `go install .` updates the binary on your PATH.
 
 ## Tests

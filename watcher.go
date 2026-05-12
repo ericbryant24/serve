@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,7 @@ func watch(filePath string, onChange func(), markdownMode bool) error {
 			if !ok {
 				return nil
 			}
-			_ = err
+			fmt.Fprintf(os.Stderr, "watcher error: %v\n", err)
 		}
 	}
 }
@@ -105,13 +106,16 @@ func watchDirectory(dir string, onChange func()) error {
 	absRoot, _ := filepath.Abs(dir)
 	_ = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "watcher: walk error at %s: %v\n", path, err)
 			return nil
 		}
 		if info.IsDir() {
 			if isIgnoredPath(path, absRoot) {
 				return filepath.SkipDir
 			}
-			_ = watcher.Add(path)
+			if err := watcher.Add(path); err != nil {
+				fmt.Fprintf(os.Stderr, "watcher: failed to watch %s: %v\n", path, err)
+			}
 		}
 		return nil
 	})
@@ -138,17 +142,18 @@ func watchDirectory(dir string, onChange func()) error {
 				}
 			}
 			debounce.Trigger()
-		case _, ok := <-watcher.Errors:
+		case err, ok := <-watcher.Errors:
 			if !ok {
 				return nil
 			}
+			fmt.Fprintf(os.Stderr, "watcher error: %v\n", err)
 		}
 	}
 }
 
 // watchComments watches ~/.serve/comments/ for changes.
 func watchComments(onChange func()) error {
-	commentsDir := filepath.Join(homeDir(), ".serve", "comments")
+	commentsDir := commentStoreDir()
 	if err := os.MkdirAll(commentsDir, 0755); err != nil {
 		return err
 	}
@@ -191,11 +196,10 @@ func watchComments(onChange func()) error {
 // ---------------------------------------------------------------------------
 
 type debouncer struct {
-	delay   time.Duration
-	fn      func()
-	timer   *time.Timer
-	trigCh  chan struct{}
-	stopCh  chan struct{}
+	delay  time.Duration
+	fn     func()
+	trigCh chan struct{}
+	stopCh chan struct{}
 }
 
 func newDebouncer(delay time.Duration, fn func()) *debouncer {

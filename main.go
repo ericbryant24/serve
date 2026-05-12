@@ -90,7 +90,11 @@ func cmdServe(args []string) {
 		}
 	}
 
-	filePath := resolvePath(fileArg)
+	filePath, err := resolvePath(fileArg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 
 	// Determine mode
 	var mode string
@@ -130,7 +134,7 @@ func cmdServe(args []string) {
 		return
 	}
 
-	srv := NewServer(filePath, mode, host, port, !noOpen)
+	srv := NewServer(filePath, mode, host, port)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -155,40 +159,35 @@ func cmdServe(args []string) {
 	}
 }
 
-func resolvePath(arg string) string {
+func resolvePath(arg string) (string, error) {
 	if arg == "" {
-		// Try index.html in cwd, then cwd itself
 		cwd, _ := os.Getwd()
 		index := filepath.Join(cwd, "index.html")
 		if fi, err := os.Stat(index); err == nil && !fi.IsDir() {
-			return index
+			return index, nil
 		}
-		return cwd
+		return cwd, nil
 	}
 	p, _ := filepath.Abs(arg)
 	if _, err := os.Stat(p); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s not found\n", p)
-		os.Exit(1)
+		return "", fmt.Errorf("%s not found", p)
 	}
-	return p
+	return p, nil
 }
 
-func resolveFile(arg string) string {
+func resolveFile(arg string) (string, error) {
 	if arg == "" {
-		fmt.Fprintln(os.Stderr, "Error: file argument required")
-		os.Exit(1)
+		return "", fmt.Errorf("file argument required")
 	}
 	p, _ := filepath.Abs(arg)
 	fi, err := os.Stat(p)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s not found\n", p)
-		os.Exit(1)
+		return "", fmt.Errorf("%s not found", p)
 	}
 	if fi.IsDir() {
-		fmt.Fprintf(os.Stderr, "Error: %s is a directory\n", p)
-		os.Exit(1)
+		return "", fmt.Errorf("%s is a directory", p)
 	}
-	return p
+	return p, nil
 }
 
 func printServeUsage() {
@@ -225,14 +224,18 @@ func cmdComments(args []string) {
 		fmt.Println("Usage: serve comments <file>")
 		return
 	}
-	filePath := resolveFile(args[0])
+	filePath, err := resolveFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 	docID := getDocumentID(filePath)
 	if docID == "" {
 		data, _ := json.MarshalIndent(map[string]interface{}{"comments": []interface{}{}}, "", "  ")
 		fmt.Println(string(data))
 		return
 	}
-	store := NewCommentStore(docID)
+	store := NewCommentStore(docID, commentStoreDir())
 	comments, err := store.List()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -259,17 +262,21 @@ func cmdResolve(args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: serve resolve <file> <id> [id...]")
 		os.Exit(1)
 	}
-	filePath := resolveFile(args[0])
+	filePath, err := resolveFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 	docID := getDocumentID(filePath)
 	if docID == "" {
 		fmt.Fprintln(os.Stderr, "Error: no comments found for this document")
 		os.Exit(1)
 	}
-	store := NewCommentStore(docID)
+	store := NewCommentStore(docID, commentStoreDir())
 	failed := false
 	for _, id := range args[1:] {
-		t := true
-		comment, err := store.Update(id, nil, &t)
+		resolved := true
+		comment, err := store.Update(id, nil, &resolved)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error updating %s: %v\n", id, err)
 			failed = true

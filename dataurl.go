@@ -10,7 +10,7 @@ import (
 
 var (
 	imgSrcRe      = regexp.MustCompile(`(?i)(<img\s[^>]*?src=["'])([^"']+)(["'])`)
-	reloadScriptRe = regexp.MustCompile(`(?s)<script>\(function\(\)\s*\{\s*function connect\(\).*?</script>`)
+	reloadScriptRe = regexp.MustCompile(`<script id="serve-reload-script">[\s\S]*?</script>`)
 )
 
 func inlineImages(htmlStr, baseDir string) string {
@@ -26,6 +26,11 @@ func inlineImages(htmlStr, baseDir string) string {
 		}
 		imgPath := filepath.Join(baseDir, src)
 		imgPath, _ = filepath.Abs(imgPath)
+		absBase, _ := filepath.Abs(baseDir)
+		rel, err := filepath.Rel(absBase, imgPath)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return match
+		}
 		data, err := os.ReadFile(imgPath)
 		if err != nil {
 			return match

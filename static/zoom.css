@@ -1,0 +1,10 @@
+
+    #zoom-control { position: fixed; bottom: 100px; right: 20px; z-index: 9999; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    #zoom-btn { width: 32px; height: 32px; border-radius: 50%; border: 1px solid #d1d5db; background: #fff; color: #6b7280; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.15s; }
+    #zoom-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+    #zoom-panel { display: none; background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); flex-direction: column; gap: 10px; width: 180px; position: absolute; bottom: 40px; right: 0; }
+    #zoom-panel.open { display: flex; }
+    .zoom-row { display: flex; align-items: center; gap: 8px; }
+    .zoom-row-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; color: #24292e; width: 40px; flex-shrink: 0; }
+    .zoom-row input[type="range"] { flex: 1; height: 4px; accent-color: #3b82f6; cursor: pointer; }
+    .zoom-row-value { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 10px; color: #656d76; width: 28px; text-align: right; flex-shrink: 0; }

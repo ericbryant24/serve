@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -58,7 +59,6 @@ func loadServeIgnore(root string) []string {
 	p := filepath.Join(root, ".serveignore")
 	data, err := os.ReadFile(p)
 	if err != nil {
-		_ = os.WriteFile(p, []byte(defaultServeIgnore), 0644)
 		return parseServeIgnore(defaultServeIgnore)
 	}
 	return parseServeIgnore(string(data))
@@ -162,29 +162,33 @@ func findDefaultFile(root string) string {
 // ---------------------------------------------------------------------------
 
 type Server struct {
-	mode            string
-	host            string
-	port            int
-	openBrowser     bool
-	openBrowserFn   func(url string)
-	filePath        string // single-file mode
-	baseDir         string
-	dirName         string
-	faviconSeed     string
-	docID           string
+	mode          string
+	host          string
+	port          int
+	openBrowserFn func(url string)
+	filePath      string // single-file mode
+	baseDir       string
+	dirName       string
+	faviconSeed   string
+	docID         string
 
-	mu             sync.Mutex
-	wsClients      map[*websocket.Conn]bool
-	commentStore   *CommentStore
-	commentStores  map[string]*CommentStore // directory mode
+	mu            sync.Mutex
+	wsClients     map[*websocket.Conn]bool
+	commentStore  *CommentStore
+	commentStores map[string]*CommentStore // directory mode
+
+	// directory mode file tree cache
+	ignorePatterns []string
+	treeMu         sync.Mutex
+	cachedTree     []FileNode
+	treeDirty      bool
 }
 
-func NewServer(filePath string, mode, host string, port int, openBrowser bool) *Server {
+func NewServer(filePath string, mode, host string, port int) *Server {
 	s := &Server{
 		mode:          mode,
 		host:          host,
 		port:          port,
-		openBrowser:   openBrowser,
 		wsClients:     map[*websocket.Conn]bool{},
 		commentStores: map[string]*CommentStore{},
 	}
@@ -212,17 +216,29 @@ func NewServer(filePath string, mode, host string, port int, openBrowser bool) *
 // ---------------------------------------------------------------------------
 
 func (s *Server) broadcast(msg map[string]interface{}) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return
 	}
+	s.mu.Lock()
+	clients := make([]*websocket.Conn, 0, len(s.wsClients))
 	for conn := range s.wsClients {
+		clients = append(clients, conn)
+	}
+	s.mu.Unlock()
+	var failed []*websocket.Conn
+	for _, conn := range clients {
 		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			failed = append(failed, conn)
+		}
+	}
+	if len(failed) > 0 {
+		s.mu.Lock()
+		for _, conn := range failed {
 			delete(s.wsClients, conn)
 			conn.Close()
 		}
+		s.mu.Unlock()
 	}
 }
 
@@ -242,55 +258,35 @@ func (s *Server) notifyFileTree(tree []FileNode) {
 // Comment store helpers
 // ---------------------------------------------------------------------------
 
-func (s *Server) getStoreForFile(fp string) *CommentStore {
+func (s *Server) getStoreForFile(fp string) (*CommentStore, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if store, ok := s.commentStores[fp]; ok {
-		return store
+		return store, nil
 	}
 	docID := getDocumentID(fp)
 	if docID == "" {
 		var err error
 		docID, err = ensureDocumentID(fp)
 		if err != nil {
-			docID = "__error__"
+			return nil, err
 		}
 	}
-	store := NewCommentStore(docID)
+	store := NewCommentStore(docID, commentStoreDir())
 	s.commentStores[fp] = store
-	return store
+	return store, nil
 }
 
-func (s *Server) getStore(r *http.Request) *CommentStore {
-	if s.mode == "directory" {
-		fp := s.fileFromRequest(r)
-		if fp == "" {
-			return NewCommentStore("__empty__")
-		}
-		return s.getStoreForFile(fp)
-	}
-	if s.commentStore == nil {
-		if s.docID == "" {
-			id, err := ensureDocumentID(s.filePath)
-			if err == nil {
-				s.docID = id
-			}
-		}
-		s.commentStore = NewCommentStore(s.docID)
-	}
-	return s.commentStore
-}
-
-// getStoreE returns the comment store or an error if the document ID cannot be
-// written (e.g. the file is read-only). Only used by write handlers.
-func (s *Server) getStoreE(r *http.Request) (*CommentStore, error) {
+func (s *Server) getStore(r *http.Request) (*CommentStore, error) {
 	if s.mode == "directory" {
 		fp := s.fileFromRequest(r)
 		if fp == "" {
 			return nil, fmt.Errorf("file parameter missing or invalid")
 		}
-		return s.getStoreForFile(fp), nil
+		return s.getStoreForFile(fp)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.commentStore == nil {
 		if s.docID == "" {
 			id, err := ensureDocumentID(s.filePath)
@@ -299,7 +295,7 @@ func (s *Server) getStoreE(r *http.Request) (*CommentStore, error) {
 			}
 			s.docID = id
 		}
-		s.commentStore = NewCommentStore(s.docID)
+		s.commentStore = NewCommentStore(s.docID, commentStoreDir())
 	}
 	return s.commentStore, nil
 }
@@ -365,7 +361,7 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 
 	if s.mode == "markdown" {
 		if isMarpDoc(s.filePath) && r.URL.Query().Get("present") == "1" {
-			htmlStr = renderMarp(s.filePath, nil, nil, s.faviconSeed, true)
+			htmlStr = renderMarp(s.filePath, nil, nil, s.faviconSeed)
 		} else {
 			marp := isMarpDoc(s.filePath)
 			htmlStr, err = renderMarkdown(s.filePath, wrapOptions{
@@ -384,6 +380,10 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		htmlStr = injectReloadScript(string(data), nil, nil, s.faviconSeed, true, false)
+	}
+
+	if coms := commentsForPath(s.filePath); len(coms) > 0 {
+		htmlStr = injectCommentAnchors(htmlStr, coms)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -453,7 +453,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 
 	ext := strings.ToLower(filepath.Ext(fp))
 	sidebar := &[2]string{s.dirName, relPath}
-	tree := buildFileTree(s.baseDir, "", loadServeIgnore(s.baseDir))
+	tree := s.fileTree()
 
 	// Raw access
 	if r.URL.Query().Get("raw") == "1" {
@@ -475,7 +475,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 		marp := isMarpDoc(fp)
 		var htmlStr string
 		if marp && r.URL.Query().Get("present") == "1" {
-			htmlStr = renderMarp(fp, sidebar, tree, s.faviconSeed, true)
+			htmlStr = renderMarp(fp, sidebar, tree, s.faviconSeed)
 		} else {
 			opts.isMarp = marp
 			htmlStr, err = renderMarkdown(fp, opts)
@@ -483,6 +483,9 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), 500)
 				return
 			}
+		}
+		if coms := commentsForPath(fp); len(coms) > 0 {
+			htmlStr = injectCommentAnchors(htmlStr, coms)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, htmlStr)
@@ -528,9 +531,8 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFileTree(w http.ResponseWriter, r *http.Request) {
-	tree := buildFileTree(s.baseDir, "", loadServeIgnore(s.baseDir))
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"files": tree})
+	json.NewEncoder(w).Encode(map[string]interface{}{"files": s.fileTree()})
 }
 
 // ---------------------------------------------------------------------------
@@ -540,33 +542,21 @@ func (s *Server) handleFileTree(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 	if s.mode == "directory" {
 		fp := s.fileFromRequest(r)
-		if fp == "" {
+		if fp == "" || getDocumentID(fp) == "" {
 			writeJSON(w, map[string]interface{}{"comments": []interface{}{}})
 			return
 		}
-		if getDocumentID(fp) == "" {
-			writeJSON(w, map[string]interface{}{"comments": []interface{}{}})
-			return
-		}
-		store := s.getStoreForFile(fp)
-		dirComments, dirErr := store.List()
-		if dirErr != nil {
-			http.Error(w, "failed to load comments", 500)
-			return
-		}
-		if dirComments == nil {
-			dirComments = []Comment{}
-		}
-		writeJSON(w, map[string]interface{}{"comments": dirComments})
-		return
-	}
-	if s.docID == "" {
+	} else if s.docID == "" {
 		writeJSON(w, map[string]interface{}{"comments": []interface{}{}})
 		return
 	}
-	store := s.getStore(r)
-	comments, listErr := store.List()
-	if listErr != nil {
+	store, err := s.getStore(r)
+	if err != nil {
+		http.Error(w, "failed to load comments", 500)
+		return
+	}
+	comments, err := store.List()
+	if err != nil {
 		http.Error(w, "failed to load comments", 500)
 		return
 	}
@@ -597,7 +587,7 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text is required", 400)
 		return
 	}
-	store, storeErr := s.getStoreE(r)
+	store, storeErr := s.getStore(r)
 	if storeErr != nil {
 		http.Error(w, storeErr.Error(), 500)
 		return
@@ -630,16 +620,18 @@ func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text cannot be empty", 400)
 		return
 	}
-	store := s.getStore(r)
+	store, err := s.getStore(r)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	comment, err := store.Update(id, body.Text, body.Resolved)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	if comment == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(404)
-		w.Write([]byte(`{"error":"Not found"}`))
+		writeJSONError(w, 404, "Not found")
 		return
 	}
 	s.notifyCommentsUpdated()
@@ -652,16 +644,18 @@ func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	store := s.getStore(r)
+	store, err := s.getStore(r)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	found, err := store.Delete(id)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	if !found {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(404)
-		w.Write([]byte(`{"error":"Not found"}`))
+		writeJSONError(w, 404, "Not found")
 		return
 	}
 	s.notifyCommentsUpdated()
@@ -672,21 +666,37 @@ func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 // Port finding & startup
 // ---------------------------------------------------------------------------
 
-func findPort(host string, startPort int) int {
-	for offset := 0; offset < 11; offset++ {
+const portSearchRange = 10
+
+func findPort(host string, startPort int) (int, bool) {
+	for offset := 0; offset <= portSearchRange; offset++ {
 		port := startPort + offset
 		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 		if err == nil {
 			ln.Close()
-			return port
+			return port, true
 		}
 	}
-	return startPort
+	return 0, false
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	port := findPort(s.host, s.port)
+	port, ok := findPort(s.host, s.port)
+	if !ok {
+		return fmt.Errorf("no available port in range %d–%d", s.port, s.port+portSearchRange)
+	}
 	s.port = port
+
+	if s.mode == "directory" {
+		si := filepath.Join(s.baseDir, ".serveignore")
+		if _, err := os.Stat(si); os.IsNotExist(err) {
+			if err := os.WriteFile(si, []byte(defaultServeIgnore), 0644); err == nil {
+				fmt.Println("Created .serveignore")
+			}
+		}
+		s.ignorePatterns = loadServeIgnore(s.baseDir)
+		s.cachedTree = buildFileTree(s.baseDir, "", s.ignorePatterns)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
@@ -747,32 +757,100 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start watchers
 	go func() {
+		var err error
 		if s.mode == "directory" {
-			err := watchDirectory(s.baseDir, func() {
+			err = watchDirectory(s.baseDir, func() {
+				s.treeMu.Lock()
+				s.treeDirty = true
+				s.treeMu.Unlock()
 				s.notifyReload()
-				tree := buildFileTree(s.baseDir, "", loadServeIgnore(s.baseDir))
-				s.notifyFileTree(tree)
+				s.notifyFileTree(s.fileTree())
 			})
-			_ = err
 		} else {
-			err := watch(s.filePath, s.notifyReload, s.mode == "markdown")
-			_ = err
+			err = watch(s.filePath, s.notifyReload, s.mode == "markdown")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "watcher: %v\n", err)
 		}
 	}()
 	go func() {
-		_ = watchComments(s.notifyCommentsUpdated)
+		if err := watchComments(s.notifyCommentsUpdated); err != nil {
+			fmt.Fprintf(os.Stderr, "comment watcher: %v\n", err)
+		}
 	}()
 
 	// Shutdown on context cancel
 	go func() {
 		<-ctx.Done()
-		srv.Close()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
 	}()
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Comment anchor injection
+// ---------------------------------------------------------------------------
+
+// commentsForPath returns the comments for a file without modifying it.
+// Returns nil if the file has no comment-id or the store is unreadable.
+func commentsForPath(fp string) []Comment {
+	docID := getDocumentID(fp)
+	if docID == "" {
+		return nil
+	}
+	store := NewCommentStore(docID, commentStoreDir())
+	comments, _ := store.List()
+	return comments
+}
+
+// injectCommentAnchors inserts an invisible span marker before each comment's
+// anchor text in the rendered HTML. The JS uses these markers to find the
+// exact anchor position without text searching, which is reliable even when
+// multiple elements share the same source-line annotation (e.g. table cells).
+// Longer anchor texts are processed first to prevent shorter substrings from
+// splitting a longer match.
+func injectCommentAnchors(rendered string, comments []Comment) string {
+	sorted := make([]Comment, len(comments))
+	copy(sorted, comments)
+	sort.Slice(sorted, func(i, j int) bool {
+		return len(sorted[i].AnchorText) > len(sorted[j].AnchorText)
+	})
+	for _, c := range sorted {
+		if c.AnchorText == "" {
+			continue
+		}
+		// Goldmark HTML-escapes &, <, >, " in text content. Try escaped first.
+		search := htmlEscape(c.AnchorText)
+		if strings.Index(rendered, search) < 0 {
+			search = c.AnchorText
+		}
+
+		// If we have a source line, start the search from the first element
+		// annotated at that line. This picks the right occurrence when the same
+		// anchor text appears on multiple lines of the document.
+		startPos := 0
+		if c.SourceLineStart != nil && *c.SourceLineStart > 0 {
+			lineHint := fmt.Sprintf(`data-source-lines="%d-`, *c.SourceLineStart)
+			if hp := strings.Index(rendered, lineHint); hp >= 0 {
+				startPos = hp
+			}
+		}
+
+		rel := strings.Index(rendered[startPos:], search)
+		if rel < 0 {
+			continue
+		}
+		idx := startPos + rel
+		marker := `<span data-comment-anchor="` + c.ID + `" style="display:none"></span>`
+		rendered = rendered[:idx] + marker + rendered[idx:]
+	}
+	return rendered
 }
 
 // ---------------------------------------------------------------------------
@@ -784,23 +862,24 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// ---------------------------------------------------------------------------
-// PID file helpers (for list/kill)
-// ---------------------------------------------------------------------------
-
-func pidFilePath() string {
-	return filepath.Join(homeDir(), ".serve", "serve-go.pid")
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-func writePIDFile(port int) {
-	dir := filepath.Join(homeDir(), ".serve")
-	os.MkdirAll(dir, 0755)
-	content := fmt.Sprintf("%d %d\n", os.Getpid(), port)
-	os.WriteFile(pidFilePath(), []byte(content), 0644)
-}
+// ---------------------------------------------------------------------------
+// Directory file tree cache
+// ---------------------------------------------------------------------------
 
-func removePIDFile() {
-	os.Remove(pidFilePath())
+func (s *Server) fileTree() []FileNode {
+	s.treeMu.Lock()
+	defer s.treeMu.Unlock()
+	if s.treeDirty {
+		s.cachedTree = buildFileTree(s.baseDir, "", s.ignorePatterns)
+		s.treeDirty = false
+	}
+	return s.cachedTree
 }
 
 // ---------------------------------------------------------------------------

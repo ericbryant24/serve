@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -16,7 +19,7 @@ var (
 
 // isMarpDoc returns true if filePath is a markdown file with `marp: true`.
 func isMarpDoc(filePath string) bool {
-	if !strings.EqualFold(extOf(filePath), ".md") {
+	if !strings.EqualFold(filepath.Ext(filePath), ".md") {
 		return false
 	}
 	data, err := os.ReadFile(filePath)
@@ -47,18 +50,6 @@ func parseFrontmatter(content string) map[string]string {
 		fm[strings.TrimSpace(k)] = v
 	}
 	return fm
-}
-
-func extOf(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '.' {
-			return path[i:]
-		}
-		if path[i] == '/' {
-			break
-		}
-	}
-	return ""
 }
 
 // slideLineRanges computes 1-indexed (start, end) line ranges for each slide.
@@ -115,18 +106,16 @@ func injectSectionSourceLines(htmlStr string, ranges [][2]int) string {
 
 func resolveMarpCmd() []string {
 	if path, err := exec.LookPath("marp"); err == nil {
-		_ = path
-		return []string{"marp"}
+		return []string{path}
 	}
 	if path, err := exec.LookPath("npx"); err == nil {
-		_ = path
-		return []string{"npx", "-y", "@marp-team/marp-cli"}
+		return []string{path, "-y", "@marp-team/marp-cli"}
 	}
 	return nil
 }
 
-func missingMarpPage(filePath string, sidebar *[2]string, fileTree []FileNode, faviconPath string, bare bool) string {
-	name := html.EscapeString(baseNameOf(filePath))
+func missingMarpPage(filePath string, sidebar *[2]string, fileTree []FileNode, faviconPath string) string {
+	name := html.EscapeString(filepath.Base(filePath))
 	body := `<!doctype html><html><head>` +
 		`<meta charset="utf-8">` +
 		`<title>` + name + ` — marp-cli required</title>` +
@@ -146,11 +135,11 @@ func missingMarpPage(filePath string, sidebar *[2]string, fileTree []FileNode, f
 		`<p>or install Node so the <code>npx</code> fallback works.</p>` +
 		`<p>The page will reload automatically once the file is saved.</p>` +
 		`</body></html>`
-	return injectReloadScript(body, sidebar, fileTree, faviconPath, false, bare)
+	return injectReloadScript(body, sidebar, fileTree, faviconPath, false, true)
 }
 
-func marpErrorPage(filePath, stderr string, sidebar *[2]string, fileTree []FileNode, faviconPath string, bare bool) string {
-	name := html.EscapeString(baseNameOf(filePath))
+func marpErrorPage(filePath, stderr string, sidebar *[2]string, fileTree []FileNode, faviconPath string) string {
+	name := html.EscapeString(filepath.Base(filePath))
 	body := `<!doctype html><html><head>` +
 		`<meta charset="utf-8">` +
 		`<title>` + name + ` — marp error</title>` +
@@ -165,27 +154,29 @@ func marpErrorPage(filePath, stderr string, sidebar *[2]string, fileTree []FileN
 		`<pre>` + html.EscapeString(stderr) + `</pre>` +
 		`<p>Fix the slide source and save — the page will reload.</p>` +
 		`</body></html>`
-	return injectReloadScript(body, sidebar, fileTree, faviconPath, false, bare)
+	return injectReloadScript(body, sidebar, fileTree, faviconPath, false, true)
 }
 
-func renderMarp(filePath string, sidebar *[2]string, fileTree []FileNode, faviconPath string, bare bool) string {
+func renderMarp(filePath string, sidebar *[2]string, fileTree []FileNode, faviconPath string) string {
 	cmd := resolveMarpCmd()
 	if cmd == nil {
-		return missingMarpPage(filePath, sidebar, fileTree, faviconPath, bare)
+		return missingMarpPage(filePath, sidebar, fileTree, faviconPath)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	args := append(cmd[1:], "--html", filePath, "-o", "-")
-	c := exec.Command(cmd[0], args...)
+	c := exec.CommandContext(ctx, cmd[0], args...)
 	out, err := c.Output()
 	if err != nil {
 		stderr := ""
 		if ee, ok := err.(*exec.ExitError); ok {
 			stderr = string(ee.Stderr)
 		}
-		return marpErrorPage(filePath, stderr, sidebar, fileTree, faviconPath, bare)
+		return marpErrorPage(filePath, stderr, sidebar, fileTree, faviconPath)
 	}
 	if strings.TrimSpace(string(out)) == "" {
-		return marpErrorPage(filePath, "(no output)", sidebar, fileTree, faviconPath, bare)
+		return marpErrorPage(filePath, "(no output)", sidebar, fileTree, faviconPath)
 	}
 
 	data, readErr := os.ReadFile(filePath)
@@ -194,14 +185,5 @@ func renderMarp(filePath string, sidebar *[2]string, fileTree []FileNode, favico
 		ranges = slideLineRanges(string(data))
 	}
 	htmlStr := injectSectionSourceLines(string(out), ranges)
-	return injectReloadScript(htmlStr, sidebar, fileTree, faviconPath, false, bare)
-}
-
-func baseNameOf(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			return path[i+1:]
-		}
-	}
-	return path
+	return injectReloadScript(htmlStr, sidebar, fileTree, faviconPath, false, true)
 }

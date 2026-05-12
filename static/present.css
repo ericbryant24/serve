@@ -1,0 +1,3 @@
+
+    #present-btn { position: fixed; bottom: 140px; right: 20px; height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid #d1d5db; background: #fff; color: #374151; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; z-index: 9999; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.15s; }
+    #present-btn:hover { border-color: #3b82f6; color: #3b82f6; }

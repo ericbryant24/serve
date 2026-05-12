@@ -20,10 +20,13 @@ The comment-id is pre-baked so the server never injects frontmatter mid-test,
 which would shift all source line numbers and break source-line scoping.
 """
 
+import shutil
+import socket
+
 import pytest
 from playwright.sync_api import Page, expect
 
-from conftest import ServeServer
+from conftest import FIXTURES_DIR, COMMENTS_DIR, ServeServer, _free_port, _start_server, _wait_ready
 
 
 @pytest.fixture
@@ -215,6 +218,41 @@ class TestTableCellAnchoring:
         is_in_cell = mark.evaluate("el => el.closest('td, th') !== null")
         assert is_in_cell, "Highlight should be inside a table cell"
 
+    def test_table_cell_highlighted_after_live_create(
+        self, page: Page, anchoring_server: ServeServer
+    ):
+        """Comment created while the page is already open (no page reload) must highlight.
+
+        This is the user's real workflow: page is open → create comment via browser →
+        WebSocket fires comments-updated → softReload fetches fresh HTML with span
+        markers → __refreshComments applies highlights.
+        """
+        # Load first so the page is already open
+        page.goto(f"{anchoring_server.base_url}/")
+        page.wait_for_load_state("networkidle")
+
+        # Create comment via API while page is open — simulates browser UI
+        # "alpha" is in the same row as "beta" (shorter); the span-marker approach
+        # must route to the "alpha" cell, not the "beta" cell.
+        post_comment(
+            anchoring_server,
+            anchor_text="alpha",
+            source_line_start=30,
+            source_line_end=30,
+        )
+
+        # Wait for the soft reload + highlight (no page.goto — must work via WS)
+        page.wait_for_function(
+            "() => document.querySelectorAll('mark.comment-highlight').length > 0",
+            timeout=6000,
+        )
+        mark = page.locator("mark.comment-highlight").first
+        expect(mark).to_be_visible(timeout=2000)
+        is_in_cell = mark.evaluate("el => el.closest('td, th') !== null")
+        assert is_in_cell, "Highlight must be inside a table cell, not orphaned"
+        cell_text = mark.evaluate("el => el.closest('td, th').textContent.trim()")
+        assert "alpha" in cell_text, f"Expected highlight in 'alpha' cell, got: {cell_text!r}"
+
     def test_cell_boundary_prevents_cross_cell_match(
         self, page: Page, anchoring_server: ServeServer
     ):
@@ -279,3 +317,71 @@ class TestOrphanedComments:
         # Either the orphaned-comments section or the comment text should be visible
         body_text = page.locator("body").inner_text()
         assert "Orphan comment text" in body_text or "orphan" in body_text.lower()
+
+
+# ---------------------------------------------------------------------------
+# Directory-mode anchoring — the user's real workflow
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def anchoring_dir_server(tmp_path):
+    """Serve anchoring.md via directory mode (matching the typical user workflow)."""
+    d = tmp_path / "docs"
+    d.mkdir()
+    shutil.copy(FIXTURES_DIR / "anchoring.md", d / "anchoring.md")
+    port = _free_port()
+    proc, base_url = _start_server(str(d), port)
+    doc_ids: list[str] = []
+    server = ServeServer(base_url, port, proc, doc_ids)
+    yield server
+    proc.terminate()
+    proc.wait(timeout=10)
+    import re
+    content = (d / "anchoring.md").read_text()
+    m = re.search(r"comment-id:\s*([a-f0-9]+)", content)
+    if m:
+        (COMMENTS_DIR / f"{m.group(1)}.json").unlink(missing_ok=True)
+
+
+def post_dir_comment(server: ServeServer, file_path: str, **kwargs) -> dict:
+    """Post a comment in directory mode (requires ?file= param)."""
+    payload = {"text": "Test comment", "anchor_text": "", "source_line_start": None, "source_line_end": None}
+    payload.update(kwargs)
+    r = server.post(f"/api/comments?file={file_path}", json=payload)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+class TestDirectoryModeAnchoring:
+
+    def test_table_cell_highlighted_after_live_create_dir_mode(
+        self, page: Page, anchoring_dir_server: ServeServer
+    ):
+        """Directory mode: comment created while page is open anchors correctly.
+
+        This is the user's exact workflow — directory mode sidebar, comment
+        submitted via browser, soft reload via WebSocket, highlight appears.
+        """
+        page.goto(f"{anchoring_dir_server.base_url}/anchoring.md")
+        page.wait_for_load_state("networkidle")
+
+        # Create comment via API while page is open (no page.goto after)
+        post_dir_comment(
+            anchoring_dir_server,
+            file_path="anchoring.md",
+            anchor_text="alpha",
+            source_line_start=30,
+            source_line_end=30,
+        )
+
+        # soft reload fires via WebSocket comments-updated → highlight should appear
+        page.wait_for_function(
+            "() => document.querySelectorAll('mark.comment-highlight').length > 0",
+            timeout=6000,
+        )
+        mark = page.locator("mark.comment-highlight").first
+        expect(mark).to_be_visible(timeout=2000)
+        is_in_cell = mark.evaluate("el => el.closest('td, th') !== null")
+        assert is_in_cell, "Highlight must be inside a table cell in directory mode"
+        cell_text = mark.evaluate("el => el.closest('td, th').textContent.trim()")
+        assert "alpha" in cell_text, f"Expected 'alpha' cell, got: {cell_text!r}"

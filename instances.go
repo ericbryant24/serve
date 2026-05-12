@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -80,30 +81,24 @@ func listInstances() []Instance {
 		})
 	}
 
-	// Sort by port then pid
-	for i := 1; i < len(instances); i++ {
-		for j := i; j > 0; j-- {
-			a, b := instances[j-1], instances[j]
-			aKey := a.Port*1000000 + a.PID
-			if a.Port == 0 {
-				aKey = 999999*1000000 + a.PID
-			}
-			bKey := b.Port*1000000 + b.PID
-			if b.Port == 0 {
-				bKey = 999999*1000000 + b.PID
-			}
-			if aKey > bKey {
-				instances[j-1], instances[j] = instances[j], instances[j-1]
-			} else {
-				break
-			}
+	sort.Slice(instances, func(i, j int) bool {
+		a, b := instances[i], instances[j]
+		aPort, bPort := a.Port, b.Port
+		if aPort == 0 {
+			aPort = 1<<31 - 1
 		}
-	}
+		if bPort == 0 {
+			bPort = 1<<31 - 1
+		}
+		if aPort != bPort {
+			return aPort < bPort
+		}
+		return a.PID < b.PID
+	})
 	return instances
 }
 
 func isServeInvocation(cmdline string) bool {
-	// Match: .../serve-go, serve-go, or serve binary
 	base := filepath.Base(strings.Fields(cmdline)[0])
 	return base == "serve-go" || base == "serve"
 }

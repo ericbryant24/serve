@@ -1,0 +1,22 @@
+
+    .vim-cursor { outline: 2px solid #3b82f6; outline-offset: 2px; border-radius: 3px; transition: outline-color 0.15s; }
+    .vim-visual { background: rgba(59, 130, 246, 0.12) !important; outline: 2px solid rgba(59, 130, 246, 0.4); outline-offset: 1px; border-radius: 3px; }
+    #vim-indicator { position: fixed; bottom: 8px; left: 12px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px; z-index: 10000; pointer-events: none; opacity: 0; transition: opacity 0.15s; color: #e2e8f0; background: #1e293b; letter-spacing: 0.5px; }
+    #vim-indicator.active { opacity: 1; }
+    #vim-indicator.visual { background: #1e40af; }
+    #vim-indicator.search { background: #854d0e; }
+    #vim-toggle { position: fixed; bottom: 62px; right: 20px; width: 32px; height: 32px; border-radius: 50%; border: 1px solid #d1d5db; background: #fff; color: #6b7280; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 11px; font-weight: 700; cursor: pointer; z-index: 9999; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.15s; }
+    #vim-toggle:hover { border-color: #3b82f6; color: #3b82f6; }
+    #vim-toggle.on { background: #1e293b; color: #e2e8f0; border-color: #1e293b; }
+    #vim-search-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #1e293b; color: #e2e8f0; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 14px; padding: 6px 12px; display: none; z-index: 10001; align-items: center; }
+    #vim-search-bar.open { display: flex; }
+    #vim-search-bar .prompt { color: #94a3b8; margin-right: 4px; }
+    #vim-search-bar input { flex: 1; background: transparent; border: none; color: #e2e8f0; font: inherit; outline: none; }
+    #vim-search-bar .count { color: #94a3b8; margin-left: 12px; font-size: 12px; }
+    .vim-search-match { background: rgba(234, 179, 8, 0.3) !important; border-radius: 2px; }
+    .vim-search-current { background: rgba(234, 179, 8, 0.6) !important; outline: 2px solid #eab308; outline-offset: 1px; border-radius: 2px; }
+    .vim-cell-cursor { outline: 2px solid #3b82f6; outline-offset: -2px; background: rgba(59, 130, 246, 0.06) !important; }
+    #vim-caret { position: absolute; width: 2px; background: #3b82f6; z-index: 9998; pointer-events: none; display: none; }
+    #vim-indicator.caret { background: #047857; }
+    #vim-indicator.cell { background: #6d28d9; }
+    .vim-mode-caret-visual ::selection { background: rgba(59, 130, 246, 0.35); }

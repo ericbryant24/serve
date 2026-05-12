@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
@@ -32,15 +33,17 @@ var chromaFormatter = chromahtml.New(
 	chromahtml.WithLineNumbers(false),
 )
 
-func generatePygmentsCSS() string {
-	style := styles.Get("monokai")
+const chromaStyle = "monokai"
+
+var chromaCSS = func() string {
+	style := styles.Get(chromaStyle)
 	if style == nil {
 		style = styles.Fallback
 	}
 	var buf bytes.Buffer
 	_ = chromaFormatter.WriteCSS(&buf, style)
 	return buf.String()
-}
+}()
 
 // ---------------------------------------------------------------------------
 // Frontmatter stripping
@@ -99,14 +102,17 @@ func setSourceLinesFromChildren(n ast.Node, src []byte) {
 		if !ok || v == nil {
 			continue
 		}
-		val := string(v.([]byte))
+		b, ok2 := v.([]byte)
+		if !ok2 {
+			continue
+		}
+		val := string(b)
 		parts := strings.SplitN(val, "-", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		var s, e int
-		fmt.Sscanf(parts[0], "%d", &s)
-		fmt.Sscanf(parts[1], "%d", &e)
+		s, _ := strconv.Atoi(parts[0])
+		e, _ := strconv.Atoi(parts[1])
 		if first == -1 || s < first {
 			first = s
 		}
@@ -253,7 +259,7 @@ func (r *sourceLineRenderer) renderCodeBlock(w util.BufWriter, source []byte, no
 		lines := n.Lines()
 		for i := 0; i < lines.Len(); i++ {
 			line := lines.At(i)
-			_, _ = w.Write(escapeHTML(source[line.Start:line.Stop]))
+			_, _ = w.WriteString(htmlEscape(string(source[line.Start:line.Stop])))
 		}
 		_, _ = w.WriteString("</code></pre>\n")
 	}
@@ -292,7 +298,7 @@ func (r *sourceLineRenderer) renderFencedCodeBlock(w util.BufWriter, source []by
 		if lexer == nil {
 			lexer = lexers.Fallback
 		}
-		style := styles.Get("monokai")
+		style := styles.Get(chromaStyle)
 		if style == nil {
 			style = styles.Fallback
 		}
@@ -316,7 +322,7 @@ func (r *sourceLineRenderer) renderFencedCodeBlock(w util.BufWriter, source []by
 	if lang != "" {
 		_, _ = fmt.Fprintf(w, ` class="language-%s"`, lang)
 	}
-	_, _ = fmt.Fprintf(w, ">%s</code></pre>\n", htmlEscapeString(code))
+	_, _ = fmt.Fprintf(w, ">%s</code></pre>\n", htmlEscape(code))
 	return ast.WalkSkipChildren, nil
 }
 
@@ -483,26 +489,6 @@ func (r *sourceLineRenderer) renderTableCell(w util.BufWriter, source []byte, no
 // so our source-line renderer has priority.
 
 // ---------------------------------------------------------------------------
-// HTML escape helpers
-// ---------------------------------------------------------------------------
-
-func escapeHTML(b []byte) []byte {
-	b = bytes.ReplaceAll(b, []byte("&"), []byte("&amp;"))
-	b = bytes.ReplaceAll(b, []byte("<"), []byte("&lt;"))
-	b = bytes.ReplaceAll(b, []byte(">"), []byte("&gt;"))
-	b = bytes.ReplaceAll(b, []byte(`"`), []byte("&quot;"))
-	return b
-}
-
-func htmlEscapeString(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, `"`, "&quot;")
-	return s
-}
-
-// ---------------------------------------------------------------------------
 // Goldmark instance
 // ---------------------------------------------------------------------------
 
@@ -544,9 +530,8 @@ func renderMarkdown(filePath string, opts wrapOptions) (string, error) {
 	if err := markdownParser.Convert([]byte(source), &buf); err != nil {
 		return "", err
 	}
-	pygmentsCSS := generatePygmentsCSS()
 	title := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-	return wrapMarkdown(title, buf.String(), pygmentsCSS, opts), nil
+	return wrapMarkdown(title, buf.String(), opts), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -569,7 +554,7 @@ func renderCodeFile(filePath string, opts wrapOptions) (string, error) {
 		return wrapPlain(name, source, opts), nil
 	}
 
-	style := styles.Get("monokai")
+	style := styles.Get(chromaStyle)
 	if style == nil {
 		style = styles.Fallback
 	}
@@ -581,8 +566,7 @@ func renderCodeFile(filePath string, opts wrapOptions) (string, error) {
 	if err := chromaFormatter.Format(&buf, style, iterator); err != nil {
 		return wrapPlain(name, source, opts), nil
 	}
-	pygmentsCSS := generatePygmentsCSS()
-	return wrapCode(name, buf.String(), pygmentsCSS, opts), nil
+	return wrapCode(name, buf.String(), opts), nil
 }
 
 // ---------------------------------------------------------------------------

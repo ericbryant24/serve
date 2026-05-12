@@ -26,7 +26,9 @@ type Comment struct {
 	ParentID        *string `json:"parent_id"`
 }
 
-var storeDir = filepath.Join(homeDir(), ".serve", "comments")
+func commentStoreDir() string {
+	return filepath.Join(homeDir(), ".serve", "comments")
+}
 
 func homeDir() string {
 	h, err := os.UserHomeDir()
@@ -43,6 +45,7 @@ func homeDir() string {
 var (
 	mdFrontmatterRe = regexp.MustCompile(`(?s)^---\s*\n(.*?\n)---\s*\n`)
 	htmlCommentIDRe = regexp.MustCompile(`(?i)<meta\s+name=["']comment-id["']\s+content=["']([^"']+)["']`)
+	docIDValidRe    = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
 
 func getDocumentID(path string) string {
@@ -73,6 +76,9 @@ func getDocumentID(path string) string {
 }
 
 func setDocumentID(path, docID string) error {
+	if !docIDValidRe.MatchString(docID) {
+		return fmt.Errorf("invalid document ID: %q", docID)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -135,11 +141,11 @@ type CommentStore struct {
 	mu    sync.Mutex
 }
 
-func NewCommentStore(docID string) *CommentStore {
-	os.MkdirAll(storeDir, 0755)
+func NewCommentStore(docID, dir string) *CommentStore {
+	os.MkdirAll(dir, 0755)
 	return &CommentStore{
 		DocID: docID,
-		path:  filepath.Join(storeDir, docID+".json"),
+		path:  filepath.Join(dir, docID+".json"),
 	}
 }
 

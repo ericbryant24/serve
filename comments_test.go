@@ -7,18 +7,9 @@ import (
 	"testing"
 )
 
-// redirectStoreDir points the comment store at a temp directory for the test.
-func redirectStoreDir(t *testing.T) {
-	t.Helper()
-	orig := storeDir
-	storeDir = t.TempDir()
-	t.Cleanup(func() { storeDir = orig })
-}
-
 func newTestStore(t *testing.T) *CommentStore {
 	t.Helper()
-	redirectStoreDir(t)
-	return NewCommentStore("test-doc")
+	return NewCommentStore("test-doc", t.TempDir())
 }
 
 // ---------------------------------------------------------------------------
@@ -319,9 +310,9 @@ func TestLoadServeIgnoreCreatesDefault(t *testing.T) {
 	if len(patterns) == 0 {
 		t.Fatal("expected non-empty patterns from default")
 	}
-	// File should have been created
-	if _, err := os.Stat(filepath.Join(dir, ".serveignore")); err != nil {
-		t.Errorf("expected .serveignore to be created: %v", err)
+	// loadServeIgnore is read-only; the file should NOT be created
+	if _, err := os.Stat(filepath.Join(dir, ".serveignore")); err == nil {
+		t.Error("loadServeIgnore should not create .serveignore (that's Start()'s job)")
 	}
 }
 
