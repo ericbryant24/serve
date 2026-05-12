@@ -1,3 +1,7 @@
+---
+comment-id: 8aeb56ae
+---
+
 # serve
 
 A local document server with live reload, inline comments, and a sidebar for navigating directories. Renders markdown and HTML with full styling, syntax-highlights code files, embeds PDFs and images, and handles everything else with a download page.
