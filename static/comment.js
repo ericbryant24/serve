@@ -194,6 +194,32 @@
         if (si !== -1) { idx = sfMap[si]; anchorText = fullText.substring(sfMap[si], sfMap[si + sa.length - 1] + 1); }
       }
     }
+    // If the line-hint container didn't contain the text (e.g. stored line
+    // numbers became stale after frontmatter was added to the file), retry
+    // from the full body before giving up.
+    if (idx === -1 && searchRoot !== document.body) {
+      searchRoot = document.body;
+      walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT);
+      textNodes = []; fullText = '';
+      while (walker.nextNode()) {
+        var nb = walker.currentNode;
+        if (nb.parentElement.closest('mark.comment-highlight, .comment-popover, .comment-form, .orphaned-comments, script, style')) continue;
+        textNodes.push({ node: nb, start: fullText.length }); fullText += nb.textContent;
+      }
+      idx = fullText.indexOf(anchorText);
+      if (idx === -1) {
+        var na2 = anchorText.replace(/\s+/g, ' '), nf2 = fullText.replace(/\s+/g, ' '), ni2 = nf2.indexOf(na2);
+        if (ni2 !== -1) {
+          var nfMap2 = [], fi2 = 0;
+          for (var ci2 = 0; ci2 < nf2.length; ci2++) {
+            if (nf2[ci2] === ' ' && /\s/.test(fullText[fi2])) { nfMap2.push(fi2); while (fi2 < fullText.length && /\s/.test(fullText[fi2])) fi2++; }
+            else { nfMap2.push(fi2); fi2++; }
+          }
+          idx = nfMap2[ni2];
+          anchorText = fullText.substring(idx, (ni2 + na2.length < nfMap2.length) ? nfMap2[ni2 + na2.length] : fullText.length);
+        }
+      }
+    }
     if (idx === -1) return false;
     var remaining = anchorText.length; var pos = idx;
     for (var i = 0; i < textNodes.length && remaining > 0; i++) {

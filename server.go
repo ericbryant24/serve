@@ -359,6 +359,23 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 	var htmlStr string
 	var err error
 
+	// Ensure the document ID (frontmatter) exists before rendering.
+	// If we defer this to first-comment creation the frontmatter insertion
+	// shifts all source line numbers, making previously-stored line hints
+	// point to the wrong elements.
+	if s.mode == "markdown" {
+		s.mu.Lock()
+		needsID := s.docID == ""
+		s.mu.Unlock()
+		if needsID {
+			if id, idErr := ensureDocumentID(s.filePath); idErr == nil {
+				s.mu.Lock()
+				s.docID = id
+				s.mu.Unlock()
+			}
+		}
+	}
+
 	if s.mode == "markdown" {
 		if isMarpDoc(s.filePath) && r.URL.Query().Get("present") == "1" {
 			htmlStr = renderMarp(s.filePath, nil, nil, s.faviconSeed)
@@ -472,6 +489,9 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 
 	switch ext {
 	case ".md":
+		// Ensure document ID before rendering so line numbers are stable
+		// from the first view (see handlePage for the same rationale).
+		ensureDocumentID(fp) //nolint:errcheck — commenting still works without an ID
 		marp := isMarpDoc(fp)
 		var htmlStr string
 		if marp && r.URL.Query().Get("present") == "1" {
@@ -491,6 +511,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, htmlStr)
 
 	case ".html", ".htm":
+		ensureDocumentID(fp) //nolint:errcheck
 		data, rerr := os.ReadFile(fp)
 		if rerr != nil {
 			http.Error(w, rerr.Error(), 500)
