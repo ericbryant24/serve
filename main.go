@@ -13,10 +13,15 @@ import (
 	"syscall"
 )
 
+var version = "dev"
+
 func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
 		switch args[0] {
+		case "--version", "-v":
+			fmt.Println("serve", version)
+			return
 		case "agent-init":
 			if err := cmdAgentInit(); err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)

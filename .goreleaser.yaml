@@ -2,6 +2,8 @@ version: 2
 
 builds:
   - binary: serve
+    ldflags:
+      - -s -w -X main.version={{.Version}}
     goos:
       - darwin
       - linux

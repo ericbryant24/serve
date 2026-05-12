@@ -22,6 +22,14 @@ Re-run the same command to update to the latest version.
 
 Go to [Releases](https://github.com/ericbryant24/serve/releases/latest), download the archive for your platform, extract it, and place the `serve` binary somewhere on your `PATH`.
 
+### Verify your installation
+
+```bash
+serve --version
+```
+
+This should print `serve` followed by a version number (e.g. `serve 1.0.0`). If it prints something else or errors, you may have an older Python version of `serve` on your PATH — re-run the install script above to replace it with the current Go version.
+
 ### Build from source
 
 Requires [Go](https://go.dev/dl/) 1.21+.
