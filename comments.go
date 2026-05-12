@@ -1,15 +1,12 @@
 package main
 
 import (
-	"crypto/md5"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -37,27 +34,6 @@ func homeDir() string {
 	}
 	return h
 }
-
-// ---------------------------------------------------------------------------
-// Comment store key — inode-based on Unix, path-hash fallback elsewhere
-// ---------------------------------------------------------------------------
-
-// storeKeyForFile returns a stable key for the comment store.
-// On Unix it uses inode+device so comments survive renames on the same
-// filesystem (mv, git mv, editor rename). On Windows fi.Sys() returns a
-// different type, the assertion returns (nil, false), and we fall back to a
-// hash of the absolute path. No file is ever modified.
-func storeKeyForFile(path string) string {
-	abs, _ := filepath.Abs(path)
-	if fi, err := os.Stat(abs); err == nil {
-		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-			return fmt.Sprintf("%x-%x", uint64(st.Dev), st.Ino)
-		}
-	}
-	h := md5.Sum([]byte(abs))
-	return hex.EncodeToString(h[:4])
-}
-
 
 // ---------------------------------------------------------------------------
 // Comment store
