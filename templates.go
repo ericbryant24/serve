@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"strings"
 )
 
@@ -38,6 +39,11 @@ var sidebarCSS string
 
 //go:embed static/sidebar.js
 var sidebarJS string
+
+//go:embed static/page.gohtml
+var pageTemplateSource string
+
+var pageTemplate = template.Must(template.New("page").Parse(pageTemplateSource))
 
 // ---------------------------------------------------------------------------
 // Favicon generation
@@ -145,75 +151,6 @@ const reloadScript = `(function() {
 })();`
 
 // ---------------------------------------------------------------------------
-// Comment CSS / JS / HTML
-// ---------------------------------------------------------------------------
-
-const commentHTML = `<button id="comment-btn" style="display:none">Comment</button>
-<div id="comment-badge" class="comment-count-badge" style="display:none"></div>
-<div id="comment-panel" class="comment-panel">
-  <div class="comment-panel-header">
-    <h3>Comments</h3>
-    <button class="comment-panel-close" id="panel-close">&times;</button>
-  </div>
-  <div class="comment-panel-body" id="panel-body"></div>
-</div>`
-
-// ---------------------------------------------------------------------------
-// HTML templates
-// ---------------------------------------------------------------------------
-
-const headTemplate = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>%s</title>
-%s
-  <style>
-    body {
-      max-width: 48em;
-      margin: 2em auto;
-      padding: 0 1em;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      line-height: 1.6;
-      color: #24292e;
-      background: #fff;
-    }
-    h1, h2, h3, h4, h5, h6 { margin-top: 1.5em; margin-bottom: 0.5em; font-weight: 600; line-height: 1.25; }
-    h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
-    h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
-    a { color: #0366d6; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    pre { background: #f6f8fa; padding: 1em; overflow-x: auto; border-radius: 6px; line-height: 1.45; }
-    code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.875em; }
-    :not(pre) > code { background: #f6f8fa; padding: 0.2em 0.4em; border-radius: 3px; }
-    img { max-width: 100%%; height: auto; }
-    table { border-collapse: collapse; width: 100%%; margin: 1em 0; }
-    th, td { border: 1px solid #dfe2e5; padding: 0.5em 0.75em; text-align: left; }
-    th { background: #f6f8fa; font-weight: 600; }
-    tr:nth-child(2n) { background: #f6f8fa; }
-    blockquote { border-left: 4px solid #dfe2e5; margin: 0; padding: 0 1em; color: #6a737d; }
-    hr { border: none; border-top: 1px solid #eaecef; margin: 1.5em 0; }
-    .highlight { background: #f6f8fa; border-radius: 6px; }
-    .highlight pre { background: transparent; margin: 0; }
-    %s
-  </style>
-`
-
-const headClose = `  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-    window.mermaid = mermaid;
-    mermaid.initialize({ startOnLoad: false, theme: 'default' });
-    mermaid.run({ querySelector: 'pre.mermaid' });
-  </script>
-</head>
-<body>
-`
-
-const bodyClose = `</body>
-</html>`
-
-// ---------------------------------------------------------------------------
 // HTML escaping helpers
 // ---------------------------------------------------------------------------
 
@@ -243,21 +180,8 @@ type FileNode struct {
 	Children []FileNode `json:"children,omitempty"`
 }
 
-func sidebarHTML(dirName, currentPath string, fileTree []FileNode) string {
-	treeJSON, _ := json.Marshal(fileTree)
-	return fmt.Sprintf(
-		"<script>window.__servePath = %s; window.__serveFileTree = %s;</script>\n"+
-			`<nav id="serve-sidebar">`+
-			`<div id="serve-sidebar-header"><span class="dir-name">%s</span></div>`+
-			`<div id="serve-sidebar-tree"></div>`+
-			`</nav>`+
-			`<button id="serve-sidebar-toggle">&lsaquo;</button>`+"\n",
-		jsString(currentPath), string(treeJSON), htmlEscape(dirName),
-	)
-}
-
 // ---------------------------------------------------------------------------
-// Wrap functions — produce full HTML pages
+// Wrap options and page data
 // ---------------------------------------------------------------------------
 
 type wrapOptions struct {
@@ -268,122 +192,119 @@ type wrapOptions struct {
 	extraCSS    string
 }
 
-func buildHead(title string, opts wrapOptions) string {
-	var extra strings.Builder
-	extra.WriteString(commentCSS)
-	extra.WriteString(vimCSS)
-	extra.WriteString(zoomCSS)
-	if opts.isMarp {
-		extra.WriteString(presentCSS)
-	}
-	if opts.sidebar != nil {
-		extra.WriteString(sidebarCSS)
-	}
-	fav := faviconLink(opts.faviconPath)
-	return fmt.Sprintf(headTemplate, htmlEscape(title), fav, chromaCSS+opts.extraCSS+extra.String())
+type pageData struct {
+	Title          string
+	FaviconLink    template.HTML
+	ChromaCSS      template.CSS
+	ExtraCSS       template.CSS
+	CommentCSS     template.CSS
+	VimCSS         template.CSS
+	ZoomCSS        template.CSS
+	SidebarCSS     template.CSS
+	PresentCSS     template.CSS
+	ShowComments   bool
+	IsMarp         bool
+	Sidebar        bool
+	SidebarDirName string
+	SidebarPath    template.JS
+	FileTree       template.JS
+	Content        template.HTML
+	ReloadScript   template.JS
+	CommentJS      template.JS
+	LinkScript     template.JS
+	VimJS          template.JS
+	ZoomJS         template.JS
+	SidebarJS      template.JS
+	PresentJS      template.JS
 }
 
-func buildScripts(opts wrapOptions) string {
-	var b strings.Builder
-	b.WriteString(reloadScriptTag + "\n")
-	b.WriteString("<script>" + commentJS + "</script>\n")
-	b.WriteString("<script>" + linkScript + "</script>\n")
-	b.WriteString("<script>" + vimJS + "</script>\n")
-	b.WriteString("<script>" + zoomJS + "</script>\n")
+func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
+	d := pageData{
+		Title:        title,
+		FaviconLink:  template.HTML(faviconLink(opts.faviconPath)),
+		ChromaCSS:    template.CSS(chromaCSS),
+		ExtraCSS:     template.CSS(opts.extraCSS),
+		CommentCSS:   template.CSS(commentCSS),
+		VimCSS:       template.CSS(vimCSS),
+		ZoomCSS:      template.CSS(zoomCSS),
+		ShowComments: showComments,
+		IsMarp:       opts.isMarp,
+		ReloadScript: template.JS(reloadScript),
+	}
+	if showComments {
+		d.CommentJS  = template.JS(commentJS)
+		d.LinkScript = template.JS(linkScript)
+		d.VimJS      = template.JS(vimJS)
+		d.ZoomJS     = template.JS(zoomJS)
+	}
 	if opts.isMarp {
-		b.WriteString("<script>" + presentJS + "</script>\n")
+		d.PresentCSS = template.CSS(presentCSS)
+		d.PresentJS  = template.JS(presentJS)
 	}
 	if opts.sidebar != nil {
-		b.WriteString("<script>" + sidebarJS + "</script>\n")
+		tree := opts.fileTree
+		if tree == nil {
+			tree = []FileNode{}
+		}
+		treeJSON, _ := json.Marshal(tree)
+		d.Sidebar        = true
+		d.SidebarDirName = opts.sidebar[0]
+		d.SidebarPath    = template.JS(jsString(opts.sidebar[1]))
+		d.FileTree       = template.JS(string(treeJSON))
+		d.SidebarCSS     = template.CSS(sidebarCSS)
+		d.SidebarJS      = template.JS(sidebarJS)
+	}
+	return d
+}
+
+func renderPage(data pageData) string {
+	var b strings.Builder
+	if err := pageTemplate.Execute(&b, data); err != nil {
+		return "<!-- template error: " + htmlEscape(err.Error()) + " -->"
 	}
 	return b.String()
 }
+
+// ---------------------------------------------------------------------------
+// Wrap functions — produce full HTML pages
+// ---------------------------------------------------------------------------
 
 func wrapMarkdown(title, content string, opts wrapOptions) string {
-	var b strings.Builder
-	b.WriteString(buildHead(title, opts))
-	b.WriteString(headClose)
-	if opts.sidebar != nil {
-		b.WriteString(sidebarHTML(opts.sidebar[0], opts.sidebar[1], opts.fileTree))
-	}
-	b.WriteString(`<div id="serve-content">`)
-	b.WriteString(content)
-	b.WriteString("</div>\n")
-	b.WriteString(commentHTML + "\n")
-	b.WriteString(buildScripts(opts))
-	b.WriteString(bodyClose)
-	return b.String()
+	data := buildPageData(title, opts, true)
+	data.Content = template.HTML(`<div id="serve-content">` + content + `</div>`)
+	return renderPage(data)
 }
 
 func wrapCode(title, highlightedHTML string, opts wrapOptions) string {
-	var b strings.Builder
-	b.WriteString(buildHead(title, opts))
-	b.WriteString(headClose)
-	if opts.sidebar != nil {
-		b.WriteString(sidebarHTML(opts.sidebar[0], opts.sidebar[1], opts.fileTree))
-	}
-	b.WriteString(`<div id="serve-content">`)
-	b.WriteString(highlightedHTML)
-	b.WriteString("</div>\n")
-	b.WriteString(reloadScriptTag + "\n")
-	if opts.sidebar != nil {
-		b.WriteString("<script>" + sidebarJS + "</script>\n")
-	}
-	b.WriteString(bodyClose)
-	return b.String()
+	data := buildPageData(title, opts, false)
+	data.Content = template.HTML(`<div id="serve-content">` + highlightedHTML + `</div>`)
+	return renderPage(data)
 }
 
 func wrapPlain(title, text string, opts wrapOptions) string {
-	var b strings.Builder
-	b.WriteString(buildHead(title, opts))
-	b.WriteString(headClose)
-	if opts.sidebar != nil {
-		b.WriteString(sidebarHTML(opts.sidebar[0], opts.sidebar[1], opts.fileTree))
-	}
-	b.WriteString(`<div id="serve-content">`)
-	b.WriteString(`<pre style="white-space:pre-wrap;word-break:break-word;">`)
-	b.WriteString(htmlEscape(text))
-	b.WriteString("</pre></div>\n")
-	b.WriteString(reloadScriptTag + "\n")
-	if opts.sidebar != nil {
-		b.WriteString("<script>" + sidebarJS + "</script>\n")
-	}
-	b.WriteString(bodyClose)
-	return b.String()
+	data := buildPageData(title, opts, false)
+	data.Content = template.HTML(
+		`<div id="serve-content"><pre style="white-space:pre-wrap;word-break:break-word;">` +
+			htmlEscape(text) + `</pre></div>`,
+	)
+	return renderPage(data)
 }
 
 func wrapPDF(title, pdfURL string, opts wrapOptions) string {
 	opts.extraCSS += "\n    body { margin: 0; padding: 0; }\n    body.has-sidebar { margin-left: 260px; }\n    body.sidebar-collapsed { margin-left: 0; }\n    embed { width: 100%; height: 100vh; border: none; }"
-	var b strings.Builder
-	b.WriteString(buildHead(title, opts))
-	b.WriteString(headClose)
-	if opts.sidebar != nil {
-		b.WriteString(sidebarHTML(opts.sidebar[0], opts.sidebar[1], opts.fileTree))
-	}
-	b.WriteString(fmt.Sprintf(`<embed src="/%s?raw=1" type="application/pdf">`, htmlEscape(pdfURL)))
-	b.WriteString("\n" + reloadScriptTag + "\n")
-	if opts.sidebar != nil {
-		b.WriteString("<script>" + sidebarJS + "</script>\n")
-	}
-	b.WriteString(bodyClose)
-	return b.String()
+	data := buildPageData(title, opts, false)
+	data.Content = template.HTML(fmt.Sprintf(`<embed src="/%s?raw=1" type="application/pdf">`, htmlEscape(pdfURL)))
+	return renderPage(data)
 }
 
 func wrapImage(title, imageURL string, opts wrapOptions) string {
 	opts.extraCSS += "\n    img.serve-image { max-width: 100%; height: auto; display: block; margin: 1em auto; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }"
-	var b strings.Builder
-	b.WriteString(buildHead(title, opts))
-	b.WriteString(headClose)
-	if opts.sidebar != nil {
-		b.WriteString(sidebarHTML(opts.sidebar[0], opts.sidebar[1], opts.fileTree))
-	}
-	b.WriteString(fmt.Sprintf(`<img class="serve-image" src="/%s?raw=1" alt="%s">`, htmlEscape(imageURL), htmlEscape(title)))
-	b.WriteString("\n" + reloadScriptTag + "\n")
-	if opts.sidebar != nil {
-		b.WriteString("<script>" + sidebarJS + "</script>\n")
-	}
-	b.WriteString(bodyClose)
-	return b.String()
+	data := buildPageData(title, opts, false)
+	data.Content = template.HTML(fmt.Sprintf(
+		`<img class="serve-image" src="/%s?raw=1" alt="%s">`,
+		htmlEscape(imageURL), htmlEscape(title),
+	))
+	return renderPage(data)
 }
 
 func formatSize(size int64) string {
@@ -416,14 +337,9 @@ func wrapFileInfo(title, fileURL string, size int64, opts wrapOptions) string {
 		"\n    .file-info .btn-download:hover { background: #106ebe; text-decoration: none; }" +
 		"\n    .file-info .btn-open { background: #f0f0f0; color: #24292e; }" +
 		"\n    .file-info .btn-open:hover { background: #e0e0e0; text-decoration: none; }"
-	var b strings.Builder
-	b.WriteString(buildHead(title, opts))
-	b.WriteString(headClose)
-	if opts.sidebar != nil {
-		b.WriteString(sidebarHTML(opts.sidebar[0], opts.sidebar[1], opts.fileTree))
-	}
+	data := buildPageData(title, opts, false)
 	rawURL := "/" + htmlEscape(fileURL) + "?raw=1"
-	b.WriteString(fmt.Sprintf(
+	data.Content = template.HTML(fmt.Sprintf(
 		`<div class="file-info"><div class="icon">&#128196;</div><h2>%s</h2>`+
 			`<div class="meta">%s &middot; %s</div>`+
 			`<div class="actions">`+
@@ -433,12 +349,7 @@ func wrapFileInfo(title, fileURL string, size int64, opts wrapOptions) string {
 		htmlEscape(title), htmlEscape(ext), formatSize(size),
 		rawURL, htmlEscape(title), rawURL,
 	))
-	b.WriteString("\n" + reloadScriptTag + "\n")
-	if opts.sidebar != nil {
-		b.WriteString("<script>" + sidebarJS + "</script>\n")
-	}
-	b.WriteString(bodyClose)
-	return b.String()
+	return renderPage(data)
 }
 
 // ---------------------------------------------------------------------------
@@ -610,9 +521,32 @@ func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, fa
 
 		var scriptParts strings.Builder
 		if sidebar != nil {
-			scriptParts.WriteString(sidebarHTML(sidebar[0], sidebar[1], fileTree))
+			tree := fileTree
+			if tree == nil {
+				tree = []FileNode{}
+			}
+			treeJSON, _ := json.Marshal(tree)
+			scriptParts.WriteString(fmt.Sprintf(
+				"<script>window.__servePath = %s; window.__serveFileTree = %s;</script>\n",
+				jsString(sidebar[1]), string(treeJSON),
+			))
+			scriptParts.WriteString(
+				`<nav id="serve-sidebar">` +
+					`<div id="serve-sidebar-header"><span class="dir-name">` + htmlEscape(sidebar[0]) + `</span></div>` +
+					`<div id="serve-sidebar-tree"></div>` +
+					`</nav>` +
+					`<button id="serve-sidebar-toggle">&lsaquo;</button>` + "\n",
+			)
 		}
-		scriptParts.WriteString(commentHTML + "\n")
+		scriptParts.WriteString(
+			`<button id="comment-btn" style="display:none">Comment</button>` + "\n" +
+				`<div id="comment-badge" class="comment-count-badge" style="display:none"></div>` + "\n" +
+				`<div id="comment-panel" class="comment-panel">` + "\n" +
+				`  <div class="comment-panel-header"><h3>Comments</h3>` +
+				`<button class="comment-panel-close" id="panel-close">&times;</button></div>` + "\n" +
+				`  <div class="comment-panel-body" id="panel-body"></div>` + "\n" +
+				`</div>` + "\n",
+		)
 		scriptParts.WriteString(reloadScriptTag + "\n")
 		scriptParts.WriteString("<script>" + commentJS + "</script>\n")
 		scriptParts.WriteString("<script>" + linkScript + "</script>\n")
