@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>serve home</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: #f6f8fa;
+      color: #1f2328;
+      min-height: 100vh;
+      padding: 2rem 1.5rem;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: #1f2328;
+    }
+
+    h1 span { color: #0969da; }
+
+    .meta { font-size: 0.8rem; color: #656d76; }
+
+    .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #1a7f37;
+      margin-right: 0.4rem;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    .empty {
+      padding: 3rem 0;
+      text-align: center;
+      color: #656d76;
+      font-size: 0.9rem;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+
+    th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #656d76;
+      border-bottom: 1px solid #d0d7de;
+    }
+
+    td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid #eaeef2;
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f0f2f4; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-markdown  { background: #dbeafe; color: #1d4ed8; }
+    .badge-html      { background: #fee2e2; color: #b91c1c; }
+    .badge-directory { background: #dcfce7; color: #15803d; }
+    .badge-unknown   { background: #f1f5f9; color: #64748b; }
+
+    .path {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.8rem;
+      color: #57606a;
+      max-width: 380px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .port {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.85rem;
+      color: #0969da;
+      text-decoration: none;
+    }
+
+    .port:hover { text-decoration: underline; }
+
+    .pid {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.78rem;
+      color: #8c959f;
+    }
+
+    .actions { white-space: nowrap; }
+
+    .btn {
+      display: inline-block;
+      padding: 0.3rem 0.7rem;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+
+    .btn:hover  { opacity: 0.8; }
+    .btn:active { opacity: 0.6; }
+
+    .btn-open {
+      background: #0969da;
+      color: #fff;
+      border-color: #0969da;
+      margin-right: 0.4rem;
+    }
+
+    .btn-open-disabled {
+      background: #0969da;
+      color: #fff;
+      border-color: #0969da;
+      margin-right: 0.4rem;
+      opacity: 0.3;
+      cursor: default;
+    }
+
+    .btn-kill {
+      background: transparent;
+      color: #cf222e;
+      border-color: #fca5a5;
+    }
+
+    .btn-kill:hover { background: #fee2e2; }
+
+    .btn[disabled] { opacity: 0.4; pointer-events: none; }
+
+    .killing td { opacity: 0.4; transition: opacity 0.3s; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1><span>serve</span> home</h1>
+      <div class="meta"><span class="dot"></span><span id="status">connecting…</span></div>
+    </header>
+    <div id="root"></div>
+  </div>
+
+  <script>
+    var root = document.getElementById('root');
+    var statusEl = document.getElementById('status');
+
+    function badgeClass(mode) {
+      var m = (mode || '').toLowerCase();
+      if (m === 'markdown')  return 'badge-markdown';
+      if (m === 'html')      return 'badge-html';
+      if (m === 'directory') return 'badge-directory';
+      return 'badge-unknown';
+    }
+
+    function shortPath(p) {
+      var match = p.match(/^\/Users\/[^/]+\/(.+)$/);
+      if (match) return '~/' + match[1];
+      match = p.match(/^\/home\/[^/]+\/(.+)$/);
+      if (match) return '~/' + match[1];
+      return p;
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function render(instances) {
+      if (!instances.length) {
+        root.innerHTML = '<div class="empty">No serve instances running.</div>';
+        return;
+      }
+
+      var rows = instances.map(function(inst) {
+        var portCell = inst.port
+          ? '<a href="' + escHtml(inst.url) + '" target="_blank" class="port">' + escHtml(inst.port) + '</a>'
+          : '<span class="pid">\u2014</span>';
+
+        var openBtn = inst.url
+          ? '<a href="' + escHtml(inst.url) + '" target="_blank" class="btn btn-open">Open</a>'
+          : '<span class="btn btn-open-disabled">Open</span>';
+
+        return '<tr data-pid="' + escHtml(inst.pid) + '">'
+          + '<td>' + portCell + '</td>'
+          + '<td><span class="badge ' + badgeClass(inst.mode) + '">' + escHtml(inst.mode || '?') + '</span></td>'
+          + '<td><span class="path" title="' + escHtml(inst.path) + '">' + escHtml(shortPath(inst.path)) + '</span></td>'
+          + '<td class="pid">' + escHtml(inst.started || '\u2014') + '</td>'
+          + '<td class="actions">'
+          +   openBtn
+          +   '<button class="btn btn-kill" data-pid="' + escHtml(inst.pid) + '">Kill</button>'
+          + '</td>'
+          + '</tr>';
+      }).join('');
+
+      root.innerHTML = '<table>'
+        + '<thead><tr>'
+        + '<th>Port</th><th>Mode</th><th>Path</th><th>Started</th><th>Actions</th>'
+        + '</tr></thead>'
+        + '<tbody>' + rows + '</tbody>'
+        + '</table>';
+
+      root.querySelectorAll('.btn-kill').forEach(function(btn) {
+        btn.addEventListener('click', function() { killInstance(btn.dataset.pid, btn); });
+      });
+    }
+
+    function killInstance(pid, btn) {
+      btn.disabled = true;
+      var row = btn.closest('tr');
+      if (row) row.classList.add('killing');
+      fetch('/api/kill/' + pid, { method: 'POST' })
+        .then(function(res) {
+          if (!res.ok) throw new Error(res.status);
+        })
+        .catch(function(e) {
+          console.error('kill failed:', e);
+          btn.disabled = false;
+          if (row) row.classList.remove('killing');
+        });
+    }
+
+    function poll() {
+      fetch('/api/instances')
+        .then(function(res) {
+          if (!res.ok) throw new Error(res.status);
+          return res.json();
+        })
+        .then(function(data) {
+          render(data);
+          var now = new Date().toLocaleTimeString();
+          statusEl.textContent = 'updated ' + now;
+        })
+        .catch(function(e) {
+          statusEl.textContent = 'error: ' + e.message;
+        });
+    }
+
+    poll();
+    setInterval(poll, 3000);
+  </script>
+</body>
+</html>

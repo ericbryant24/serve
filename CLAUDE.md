@@ -52,6 +52,7 @@ serve resolve file.md <id> # resolve comment
 serve agent-init       # set up agent integration (Claude Code)
 serve list             # list running instances (also: --json)
 serve kill <pid>       # stop one (also: --port N, --all, --force)
+serve home             # browser dashboard of all running instances (default port 7070)
 ```
 
 ## Rebuild & Install

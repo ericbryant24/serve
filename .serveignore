@@ -1,0 +1,13 @@
+# .serveignore — files and directories to hide from the sidebar
+# gitignore-style patterns: trailing / matches directories only, * is a wildcard
+
+.git/
+node_modules/
+__pycache__/
+dist/
+build/
+vendor/
+target/
+*.pyc
+*.o
+*.class

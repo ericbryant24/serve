@@ -40,6 +40,9 @@ func main() {
 		case "kill":
 			cmdKill(args[1:])
 			return
+		case "home":
+			cmdHome(args[1:])
+			return
 		}
 	}
 	cmdServe(args)
@@ -217,6 +220,7 @@ Subcommands:
   serve resolve <file> <id> [id...]  Mark comments as resolved
   serve list                         List running serve instances
   serve kill <pid>... | --all        Stop running serve instances
+  serve home [--port N]              Dashboard of running instances (default port 7070)
 `)
 }
 

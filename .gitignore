@@ -1,5 +1,7 @@
-# Go binary
+# Go binaries
 /serve
+/serve-go
+/serve-go.exe
 
 # Python-generated files
 __pycache__/

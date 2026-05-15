@@ -34,6 +34,7 @@ var lsofPortRe = regexp.MustCompile(`:(\d+)\s*\(LISTEN\)`)
 var subcommands = map[string]bool{
 	"list": true, "ls": true, "kill": true,
 	"comments": true, "resolve": true, "agent-init": true,
+	"home": true,
 }
 
 // listInstances discovers running serve-go instances via ps.
