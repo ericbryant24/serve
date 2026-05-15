@@ -65,6 +65,18 @@ func listInstances() []Instance {
 		}
 		argv := strings.Fields(cmdline)
 		if isSubcommand(argv) {
+			if len(argv) >= 2 && argv[1] == "home" {
+				port := listeningPort(pid)
+				started := startTime(pid)
+				instances = append(instances, Instance{
+					PID:     pid,
+					Port:    port,
+					Path:    "(home dashboard)",
+					Mode:    "home",
+					Started: started,
+					Cmdline: cmdline,
+				})
+			}
 			continue
 		}
 		positional := parseServeArgv(argv)
