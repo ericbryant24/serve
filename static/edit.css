@@ -1,0 +1,189 @@
+/* Edit button — fixed top-right */
+#serve-edit-btn {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  padding: 5px 14px;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+#serve-edit-btn:hover { background: #106ebe; }
+
+/* Editor overlay — light themed, sits above sidebar (900) and toggle (901) */
+#serve-editor {
+  display: none;
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #fff;
+}
+
+/* Shift with sidebar */
+body.has-sidebar #serve-editor    { left: 260px; }
+body.sidebar-collapsed #serve-editor { left: 36px; }
+
+/* While editing, raise the sidebar toggle above the editor so it stays clickable */
+body.serve-editing #serve-sidebar-toggle { z-index: 1001; }
+
+/* Pad toolbar past the toggle button (268px start + 28px width - 260px editor left = 36px) */
+body.serve-editing.has-sidebar #serve-editor-bar { padding-left: 44px; }
+
+/* Toolbar */
+#serve-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: #f6f8fa;
+  border-bottom: 1px solid #d0d7de;
+  flex-shrink: 0;
+}
+#serve-editor-close {
+  padding: 4px 14px;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+}
+#serve-editor-close:hover { background: #106ebe; }
+#serve-editor-cancel {
+  padding: 4px 12px;
+  background: #fff;
+  color: #24292e;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+#serve-editor-cancel:hover { background: #f3f4f6; border-color: #b0b7c0; }
+#serve-editor-split-toggle {
+  padding: 4px 12px;
+  background: #fff;
+  color: #24292e;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+#serve-editor-split-toggle:hover { background: #f3f4f6; }
+#serve-editor-split-toggle.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+.serve-editor-hint {
+  margin-left: auto;
+  color: #6a737d;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+/* Editor body */
+#serve-editor-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Textarea pane */
+#serve-editor-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 20px 24px;
+  background: #fafafa;
+  color: #24292e;
+  border: none;
+  outline: none;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.65;
+  resize: none;
+  tab-size: 2;
+  caret-color: #0078d4;
+  border-right: 1px solid #eaecef;
+}
+
+/* Preview pane — hidden in textarea mode */
+#serve-editor-preview {
+  display: none;
+  flex: 1;
+  padding: 24px 40px;
+  overflow-y: auto;
+  background: #fff;
+  border-left: 1px solid #d0d7de;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #24292e;
+}
+#serve-editor-preview h1,
+#serve-editor-preview h2,
+#serve-editor-preview h3,
+#serve-editor-preview h4,
+#serve-editor-preview h5,
+#serve-editor-preview h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+#serve-editor-preview h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+#serve-editor-preview h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+#serve-editor-preview a { color: #0366d6; text-decoration: none; }
+#serve-editor-preview a:hover { text-decoration: underline; }
+/* Plain pre blocks (no syntax highlighting) */
+#serve-editor-preview pre:not(.chroma) {
+  background: #f6f8fa;
+  padding: 1em;
+  overflow-x: auto;
+  border-radius: 6px;
+  line-height: 1.45;
+}
+/* Chroma-highlighted blocks: let the page's monokai CSS handle colors;
+   just add rounding and clip overflow */
+#serve-editor-preview .chroma {
+  border-radius: 6px;
+  overflow: auto;
+  margin: 1em 0;
+}
+#serve-editor-preview code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.875em;
+}
+#serve-editor-preview :not(pre) > code {
+  background: #f6f8fa;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+}
+#serve-editor-preview img { max-width: 100%; height: auto; }
+#serve-editor-preview table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+#serve-editor-preview th,
+#serve-editor-preview td { border: 1px solid #dfe2e5; padding: 0.5em 0.75em; text-align: left; }
+#serve-editor-preview th { background: #f6f8fa; font-weight: 600; }
+#serve-editor-preview tr:nth-child(2n) { background: #f6f8fa; }
+#serve-editor-preview blockquote {
+  border-left: 4px solid #dfe2e5;
+  margin: 0;
+  padding: 0 1em;
+  color: #6a737d;
+}
+#serve-editor-preview hr { border: none; border-top: 1px solid #eaecef; margin: 1.5em 0; }
+
+/* Split mode: show preview pane alongside textarea */
+#serve-editor.serve-editor-split #serve-editor-textarea { flex: 0 0 50%; }
+#serve-editor.serve-editor-split #serve-editor-preview { display: block; }

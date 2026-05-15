@@ -42,6 +42,9 @@
 {{- if .IsMarp}}
 {{.PresentCSS}}
 {{- end}}
+{{- if .ShowEdit}}
+{{.EditCSS}}
+{{- end}}
   </style>
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
@@ -71,6 +74,21 @@
   <div class="comment-panel-body" id="panel-body"></div>
 </div>
 {{- end}}
+{{- if .ShowEdit}}
+<button id="serve-edit-btn">Edit</button>
+<div id="serve-editor">
+  <div id="serve-editor-bar">
+    <button id="serve-editor-close">Save &amp; Close</button>
+    <button id="serve-editor-cancel">Cancel</button>
+    <button id="serve-editor-split-toggle">Preview</button>
+    <span class="serve-editor-hint">Ctrl+S to save</span>
+  </div>
+  <div id="serve-editor-body">
+    <textarea id="serve-editor-textarea" spellcheck="false"></textarea>
+    <div id="serve-editor-preview"></div>
+  </div>
+</div>
+{{- end}}
 <script id="serve-reload-script">{{.ReloadScript}}</script>
 {{- if .ShowComments}}
 <script>{{.CommentJS}}</script>
@@ -83,6 +101,9 @@
 {{- end}}
 {{- if .Sidebar}}
 <script>{{.SidebarJS}}</script>
+{{- end}}
+{{- if .ShowEdit}}
+<script>{{.EditJS}}</script>
 {{- end}}
 </body>
 </html>

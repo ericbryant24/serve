@@ -200,11 +200,13 @@ class TestSymlinkEscape:
 
 
 # ---------------------------------------------------------------------------
-# Read-only file: PermissionError → clean error response, server stays alive
+# Read-only file: comments are stored externally, so read-only files work fine
 # ---------------------------------------------------------------------------
 
 class TestReadOnlyFile:
-    def test_read_only_md_returns_error_not_crash(self, md_file: Path):
+    def test_read_only_md_accepts_comments(self, md_file: Path):
+        # The server stores comments in ~/.serve/comments/, never in the source
+        # file. A read-only markdown file should accept comments normally.
         os.chmod(md_file, 0o444)
         port = _free_port()
         proc, base_url = _start_server(str(md_file), port)
@@ -214,10 +216,11 @@ class TestReadOnlyFile:
                 json={"text": "Test comment"},
                 timeout=5.0,
             )
-            assert r.status_code in (400, 403, 500)
-            # Server must remain functional after the error
+            assert r.status_code == 200
+            # Server remains functional
             health = httpx.get(f"{base_url}/api/comments", timeout=2.0)
             assert health.status_code == 200
+            assert len(health.json()["comments"]) == 1
         finally:
             os.chmod(md_file, 0o644)
             proc.terminate()

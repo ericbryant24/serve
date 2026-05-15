@@ -23,6 +23,17 @@ type Comment struct {
 	ParentID        *string `json:"parent_id"`
 }
 
+// ---------------------------------------------------------------------------
+// Store key — inode-based, never modifies source files
+// ---------------------------------------------------------------------------
+
+// storeKeyForFile returns a stable key for the comment store. It delegates to
+// the platform-specific inodeStoreKey, which uses the file's inode+device on
+// Unix (survives mv/git mv) or a path hash on Windows.
+func storeKeyForFile(path string) string {
+	return inodeStoreKey(path)
+}
+
 func commentStoreDir() string {
 	return filepath.Join(homeDir(), ".serve", "comments")
 }

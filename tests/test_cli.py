@@ -51,16 +51,18 @@ class TestCommentsSubcommand:
         ids = [x["id"] for x in data["comments"]]
         assert c["id"] in ids
 
-    def test_doc_id_matches_injected_id(self, md_server: ServeServer, md_file: Path):
-        # POST a comment triggers doc-id injection into the file's frontmatter
-        make_comment(md_server)
+    def test_doc_id_is_stable(self, md_server: ServeServer, md_file: Path):
+        # The server uses an inode-based doc_id — source files are never modified.
+        # The CLI must return the same doc_id the server used to store the comment.
+        c = make_comment(md_server)
         result = run_cli("comments", str(md_file))
         assert result.returncode == 0
         data = json.loads(result.stdout)
+        assert data.get("doc_id"), "doc_id should be present in CLI output"
+        assert c["id"] in [x["id"] for x in data["comments"]], "comment created via API should be visible via CLI"
+        # Source file must not be modified
         content = md_file.read_text()
-        m = re.search(r"comment-id:\s*([a-f0-9]+)", content)
-        assert m, "comment-id not injected into file after comment POST"
-        assert data.get("doc_id") == m.group(1)
+        assert "comment-id" not in content, "server must not inject comment-id into source files"
 
     def test_html_file_works(self, html_file: Path):
         result = run_cli("comments", str(html_file))

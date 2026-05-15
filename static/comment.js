@@ -36,7 +36,7 @@
   function init() {
     api('GET', '').then(function(res) {
       comments = res.comments || [];
-      waitForMermaid(function() { applyHighlights(); updateBadge(); });
+      waitForMermaid(function() { clearHighlights(); applyHighlights(); updateBadge(); });
     });
     setupSelectionListener();
   }

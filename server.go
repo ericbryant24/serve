@@ -642,6 +642,73 @@ func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
+// HTTP handlers — edit API
+// ---------------------------------------------------------------------------
+
+// resolveTarget returns the absolute file path for an edit/file/preview request.
+// In directory mode the path comes from the ?file= query param; in single-file
+// mode it is always s.filePath.
+func (s *Server) resolveTarget(r *http.Request) string {
+	if s.mode == "directory" {
+		return s.fileFromRequest(r)
+	}
+	return s.filePath
+}
+
+func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
+	fp := s.resolveTarget(r)
+	if fp == "" {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if !isEditableFile(fp) {
+		http.Error(w, "not editable", 403)
+		return
+	}
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, map[string]string{"content": string(data)})
+}
+
+func (s *Server) handleEditFile(w http.ResponseWriter, r *http.Request) {
+	fp := s.resolveTarget(r)
+	if fp == "" {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if !isEditableFile(fp) {
+		http.Error(w, "not editable", 403)
+		return
+	}
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	if err := os.WriteFile(fp, []byte(body.Content), 0644); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	writeJSON(w, map[string]string{"html": renderMarkdownSource(body.Content)})
+}
+
+// ---------------------------------------------------------------------------
 // Port finding & startup
 // ---------------------------------------------------------------------------
 
@@ -700,6 +767,27 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	})
 	mux.HandleFunc("/api/files", s.handleFileTree)
+	mux.HandleFunc("/api/file", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			s.handleGetFile(w, r)
+		} else {
+			http.Error(w, "method not allowed", 405)
+		}
+	})
+	mux.HandleFunc("/api/edit", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleEditFile(w, r)
+		} else {
+			http.Error(w, "method not allowed", 405)
+		}
+	})
+	mux.HandleFunc("/api/preview", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handlePreview(w, r)
+		} else {
+			http.Error(w, "method not allowed", 405)
+		}
+	})
 
 	if s.mode == "directory" {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

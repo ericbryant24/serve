@@ -40,6 +40,12 @@ var sidebarCSS string
 //go:embed static/sidebar.js
 var sidebarJS string
 
+//go:embed static/edit.css
+var editCSS string
+
+//go:embed static/edit.js
+var editJS string
+
 //go:embed static/page.gohtml
 var pageTemplateSource string
 
@@ -116,8 +122,13 @@ const reloadScript = `(function() {
     var ws = new WebSocket('ws://' + location.host + '/ws');
     ws.onmessage = function(event) {
       var data = JSON.parse(event.data);
-      if (data.type === 'reload') { softReload(); }
-      else if (data.type === 'comments-updated') {
+      if (data.type === 'reload') {
+        if (window.__serveEditMode) {
+          if (window.__serveOnReload) window.__serveOnReload();
+        } else {
+          softReload();
+        }
+      } else if (data.type === 'comments-updated') {
         softReload();
       } else if (data.type === 'filetree') {
         if (window.__updateSidebarTree) window.__updateSidebarTree(data.files);
@@ -190,6 +201,7 @@ type wrapOptions struct {
 	faviconPath string
 	isMarp      bool
 	extraCSS    string
+	showEdit    bool
 }
 
 type pageData struct {
@@ -202,7 +214,9 @@ type pageData struct {
 	ZoomCSS        template.CSS
 	SidebarCSS     template.CSS
 	PresentCSS     template.CSS
+	EditCSS        template.CSS
 	ShowComments   bool
+	ShowEdit       bool
 	IsMarp         bool
 	Sidebar        bool
 	SidebarDirName string
@@ -216,6 +230,7 @@ type pageData struct {
 	ZoomJS         template.JS
 	SidebarJS      template.JS
 	PresentJS      template.JS
+	EditJS         template.JS
 }
 
 func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
@@ -240,6 +255,11 @@ func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
 	if opts.isMarp {
 		d.PresentCSS = template.CSS(presentCSS)
 		d.PresentJS  = template.JS(presentJS)
+	}
+	if opts.showEdit {
+		d.ShowEdit = true
+		d.EditCSS  = template.CSS(editCSS)
+		d.EditJS   = template.JS(editJS)
 	}
 	if opts.sidebar != nil {
 		tree := opts.fileTree

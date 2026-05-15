@@ -531,6 +531,7 @@ func renderMarkdown(filePath string, opts wrapOptions) (string, error) {
 		return "", err
 	}
 	title := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+	opts.showEdit = isEditableFile(filePath)
 	return wrapMarkdown(title, buf.String(), opts), nil
 }
 
@@ -545,6 +546,7 @@ func renderCodeFile(filePath string, opts wrapOptions) (string, error) {
 	}
 	source := string(data)
 	name := filepath.Base(filePath)
+	opts.showEdit = isEditableFile(filePath)
 
 	lexer := lexers.Match(name)
 	if lexer == nil {
@@ -606,4 +608,24 @@ func isTextFile(filePath string) bool {
 	}
 	mimeType := mime.TypeByExtension(ext)
 	return strings.HasPrefix(mimeType, "text/")
+}
+
+// isEditableFile reports whether fp can be edited in the browser.
+// Only plain prose formats are supported; code files and HTML are excluded.
+func isEditableFile(fp string) bool {
+	switch strings.ToLower(filepath.Ext(fp)) {
+	case ".md", ".markdown", ".txt", ".text":
+		return true
+	}
+	return false
+}
+
+// renderMarkdownSource renders a raw markdown string to an HTML fragment.
+// It does not wrap in a page — used for the split-pane live preview endpoint.
+func renderMarkdownSource(source string) string {
+	var buf bytes.Buffer
+	if err := markdownParser.Convert([]byte(stripFrontmatter(source)), &buf); err != nil {
+		return htmlEscape(source)
+	}
+	return buf.String()
 }

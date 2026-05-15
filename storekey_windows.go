@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-func storeKeyForFile(path string) string {
+func inodeStoreKey(path string) string {
 	abs, _ := filepath.Abs(path)
 	h := md5.Sum([]byte(abs))
 	return hex.EncodeToString(h[:4])
