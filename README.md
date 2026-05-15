@@ -42,6 +42,17 @@ go install .
 
 This places the binary in `$(go env GOPATH)/bin`, which Go adds to your `PATH` by default.
 
+### Finder Quick Action (macOS)
+
+Right-click any file or folder in Finder and choose **Quick Actions → Serve**:
+
+```bash
+cd quick-action
+sh install-quick-action.sh
+```
+
+This copies `Serve.workflow` to `~/Library/Services/` and refreshes the Services menu. Run it again to update. You may need to relaunch Finder (`killall Finder`) for the item to appear the first time.
+
 ## Usage
 
 ```bash
@@ -77,6 +88,9 @@ serve kill --port 8001
 
 # Stop them all
 serve kill --all
+
+# Open a browser dashboard showing all running instances (default port 7070)
+serve home
 ```
 
 ## Directory Mode
