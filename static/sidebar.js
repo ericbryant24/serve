@@ -32,16 +32,16 @@
     });
     return html;
   }
+  tree.addEventListener('click',function(e){
+    var dir=e.target.closest('.sidebar-dir');if(!dir)return;
+    var key='dir:'+dir.getAttribute('data-dir');
+    var children=tree.querySelector('[data-dir-children="'+dir.getAttribute('data-dir')+'"]');
+    if(!children)return;
+    dir.classList.toggle('open');children.classList.toggle('collapsed');
+    var s=getState();s[key]=dir.classList.contains('open');saveState(s);
+  });
   function renderSidebar(files){
     tree.innerHTML=renderTree(files,0);
-    tree.addEventListener('click',function(e){
-      var dir=e.target.closest('.sidebar-dir');if(!dir)return;
-      var key='dir:'+dir.getAttribute('data-dir');
-      var children=tree.querySelector('[data-dir-children="'+dir.getAttribute('data-dir')+'"]');
-      if(!children)return;
-      dir.classList.toggle('open');children.classList.toggle('collapsed');
-      var s=getState();s[key]=dir.classList.contains('open');saveState(s);
-    });
     var active=tree.querySelector('.sidebar-file.active');
     if(active)active.scrollIntoView({block:'center'});
   }
