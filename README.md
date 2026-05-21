@@ -1,6 +1,10 @@
 # serve
 
-A local document server with live reload, inline comments, and a sidebar for navigating directories. Renders markdown and HTML with full styling, syntax-highlights code files, embeds PDFs and images, and handles everything else with a download page.
+Preview documents in your browser as you edit them — with inline comments you can leave on any passage and an AI agent can read and resolve.
+
+Point `serve` at a markdown file, an HTML file, or a whole directory. It opens a browser tab, renders the file with proper styling (GitHub-flavored markdown, Chroma syntax highlighting, embedded PDFs, Mermaid diagrams), and live-reloads on every save. Directories get a sidebar tree that handles every file type — code, plain text, PDFs, images — without a separate viewer.
+
+The distinctive piece is the comment system. Select text in the browser, write a comment, and it's anchored to that passage. Source files are never modified — comments live in `~/.serve/comments/` keyed by inode, so they follow files through `mv` and `git mv`. From the CLI you (or a coding agent) can list comments as JSON, fix the underlying issues, and mark them resolved. Built for the loop of *draft → review in browser → leave inline feedback → hand to agent → repeat*.
 
 ## Install
 
