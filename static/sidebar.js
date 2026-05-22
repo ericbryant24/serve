@@ -21,9 +21,11 @@
       if(item.type==='dir'){
         var dirKey='dir:'+item.path;var stored=s[dirKey];
         var isOpen=stored===true||(stored===undefined&&activeAncestors[item.path]===true);
+        html+='<div class="sidebar-group" style="--depth:'+depth+';">';
         html+='<div class="sidebar-dir'+(isOpen?' open':'')+'" style="'+pad+'" data-dir="'+item.path+'">'+esc(item.name)+'</div>';
         html+='<div class="sidebar-children'+(isOpen?'':' collapsed')+'" data-dir-children="'+item.path+'">';
         html+=renderTree(item.children||[],depth+1);
+        html+='</div>';
         html+='</div>';
       } else {
         var isActive=item.path===currentPath;

@@ -61,7 +61,9 @@ serve home             # browser dashboard of all running instances (default por
 go build -o serve . && go install .
 ```
 
-Always build both: `./serve` is what the test suite uses; `go install .` updates the binary on your PATH (`~/.local/bin/`).
+Always build both: `./serve` is what the test suite uses; `go install .` writes the binary to `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if GOBIN is unset).
+
+The module is named `serve`, so the produced binary is `serve`. Earlier the module was `serve-go`; if you still have a stale `serve` binary on PATH from before the rename, `go install .` may write to a *different* location than the one your shell finds — `which serve` will tell you which path is being run, and you should remove any duplicates so updates land where you expect.
 
 ## Tests
 

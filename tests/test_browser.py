@@ -9,7 +9,6 @@ These test JavaScript behavior that HTTP response tests cannot catch:
 
 Run:
   uv run pytest tests/test_browser.py -v
-  SERVE_CMD="./serve-go/serve-go" uv run pytest tests/test_browser.py -v
 
 For a visible browser (useful when debugging):
   uv run pytest tests/test_browser.py -v --headed --slowmo 300

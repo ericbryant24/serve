@@ -37,7 +37,7 @@ var subcommands = map[string]bool{
 	"home": true,
 }
 
-// listInstances discovers running serve-go instances via ps.
+// listInstances discovers running serve instances via ps.
 func listInstances() []Instance {
 	selfPID := os.Getpid()
 	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()

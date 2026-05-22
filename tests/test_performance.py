@@ -1,11 +1,8 @@
 """
 Performance benchmarks for the serve tool.
 
-Run against Python:
+Run:
     uv run pytest tests/test_performance.py -s -v
-
-Run against Go:
-    SERVE_CMD="./serve-go/serve-go" uv run pytest tests/test_performance.py -s -v
 
 All tests print measurements to stdout (pass -s to see them).
 No assertions on absolute values — tests pass as long as the server responds.
