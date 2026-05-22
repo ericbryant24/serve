@@ -7,9 +7,40 @@
   function getState(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');}catch(e){return{};}}
   function saveState(s){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(s));}catch(e){}}
   var state=getState();
+  var MIN_W=180,MAX_W=600;
+  function applyWidth(w){document.documentElement.style.setProperty('--serve-sidebar-w',w+'px');}
+  if(typeof state.width==='number'&&state.width>=MIN_W&&state.width<=MAX_W)applyWidth(state.width);
   if(state.hidden){sidebar.classList.add('collapsed');toggle.classList.add('collapsed');document.body.classList.add('sidebar-collapsed');document.body.classList.remove('has-sidebar');toggle.textContent='☰';}
   else{document.body.classList.add('has-sidebar');toggle.textContent='‹';}
   toggle.addEventListener('click',function(){var s=getState();s.hidden=!s.hidden;saveState(s);sidebar.classList.toggle('collapsed');toggle.classList.toggle('collapsed');document.body.classList.toggle('has-sidebar');document.body.classList.toggle('sidebar-collapsed');toggle.textContent=s.hidden?'☰':'‹';});
+  var resize=document.createElement('div');
+  resize.id='serve-sidebar-resize';
+  if(state.hidden)resize.classList.add('hidden');
+  document.body.appendChild(resize);
+  toggle.addEventListener('click',function(){resize.classList.toggle('hidden',getState().hidden===true);});
+  resize.addEventListener('mousedown',function(e){
+    e.preventDefault();
+    var startX=e.clientX;
+    var startW=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--serve-sidebar-w'),10)||260;
+    resize.classList.add('dragging');
+    document.body.classList.add('serve-resizing');
+    function onMove(ev){
+      var w=startW+(ev.clientX-startX);
+      if(w<MIN_W)w=MIN_W;else if(w>MAX_W)w=MAX_W;
+      applyWidth(w);
+    }
+    function onUp(){
+      document.removeEventListener('mousemove',onMove);
+      document.removeEventListener('mouseup',onUp);
+      resize.classList.remove('dragging');
+      document.body.classList.remove('serve-resizing');
+      var w=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--serve-sidebar-w'),10);
+      var s=getState();s.width=w;saveState(s);
+    }
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+  });
+  resize.addEventListener('dblclick',function(){applyWidth(260);var s=getState();s.width=260;saveState(s);});
   function fileIcon(name){var ext=name.split('.').pop().toLowerCase();var icons={md:'📄',html:'🌐',htm:'🌐',pdf:'📁',json:'{ }',yaml:'⚙',yml:'⚙',py:'🐍',js:'JS',ts:'TS',css:'🎨',txt:'📃',log:'📃',xml:'✂',csv:'📊',toml:'⚙',svg:'🖼'};return icons[ext]||'📄';}
   var activeAncestors={};
   if(currentPath){var parts=currentPath.split('/');for(var i=1;i<parts.length;i++){activeAncestors[parts.slice(0,i).join('/')]=true;}}
