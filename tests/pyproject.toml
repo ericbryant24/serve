@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "Integration test suite for serve (Go binary)"
 readme = "README.md"
 authors = [
-    { name = "ericbryant24", email = "ericbryant24@gmail.com" }
+    { name = "ericbryant24" }
 ]
 requires-python = ">=3.13"
 dependencies = []
