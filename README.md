@@ -1,42 +1,167 @@
 # serve
 
-Preview documents in your browser as you edit them — with inline comments you can leave on any passage and an AI agent can read and resolve.
+Open a document in your browser. Highlight a sentence. Leave a comment. An AI agent reads it from the command line, updates the file, marks it resolved.
 
-Point `serve` at a markdown file, an HTML file, or a whole directory. It opens a browser tab, renders the file with proper styling (GitHub-flavored markdown, Chroma syntax highlighting, embedded PDFs, Mermaid diagrams), and live-reloads on every save. Directories get a sidebar tree that handles every file type — code, plain text, PDFs, images — without a separate viewer.
+That's the loop `serve` is built for.
 
-The distinctive piece is the comment system. Select text in the browser, write a comment, and it's anchored to that passage. Source files are never modified — comments live in `~/.serve/comments/` keyed by inode, so they follow files through `mv` and `git mv`. From the CLI you (or a coding agent) can list comments as JSON, fix the underlying issues, and mark them resolved. Built for the loop of *draft → review in browser → leave inline feedback → hand to agent → repeat*.
+![A markdown doc rendered in serve with a comment popover open over a highlighted sentence](docs/images/hero-comment.png)
+
+`serve` is a local document previewer for markdown, HTML, code files, PDFs, images, and directories of all of those. It opens a browser tab, live-reloads on save, and renders everything sensibly out of the box. The piece you won't find in other previewers is the comment system: select text in the browser, write a note, and the comment is anchored to that exact passage. Source files are never modified — comments live in `~/.serve/comments/` and follow files through `mv` and `git mv`.
+
+## When it's useful
+
+- You're drafting a spec with an AI and want a human reviewer to leave inline comments without an email thread.
+- You're reviewing a doc the AI wrote and want to point at specific passages instead of typing free-form feedback.
+- You want a Google-Docs-style comment experience for the markdown files you keep in git, without checking comments into the repo.
+- You're passing a doc back and forth between yourself and Claude / Cursor / Copilot and want the agent to know exactly which sentences need work.
+
+## The agent loop
+
+```bash
+# Serve a draft
+serve docs/spec.md
+
+# (You highlight passages in the browser and leave inline comments.)
+
+# Park an agent on the live event stream
+serve watch docs/spec.md --new
+
+# Or have it list pending comments on demand
+serve comments docs/spec.md
+# → JSON: anchor_text, source line numbers, comment text, IDs
+
+# Agent edits the file, then resolves
+serve resolve docs/spec.md <comment-id>
+```
+
+`serve watch` emits one JSON event per line: `new_comment`, `new_reply`, `edited`, `resolved`, `deleted`, plus an `initial` replay on startup for every existing unresolved comment. No polling.
+
+## Use with Claude Code
+
+```bash
+serve agent-init
+```
+
+This is the one command that wires Claude into the loop. It installs a `serve` skill that teaches Claude about `serve comments`, `serve resolve`, and `serve watch`. After running it once, you can say things like *"address the comments on this doc"* or *"watch this file and fix new feedback as it comes in"* — Claude reads, edits, resolves.
+
+Currently supports Claude Code only. Choose user-level scope (`~/.claude/`, available in every project) or project-level scope (`./.claude/`, this project only). Re-run any time to refresh the skill.
+
+## A dashboard for every running instance
+
+Once you start using `serve` for the review loop, you end up with one running per doc you're working on. `serve home` opens a single page that lists every instance, what it's serving, and lets you open or kill any of it with a click.
+
+![The serve home dashboard listing nine running instances, each with port, mode badge, path, started time, and Open/Kill buttons](docs/images/home-dashboard.png)
+
+```bash
+serve home            # opens http://localhost:7070
+```
+
+The list refreshes automatically as you start and stop instances elsewhere. It works the way Activity Monitor does for processes — discover what's running, jump in, or shut things down.
+
+## Directory mode
+
+Point `serve` at a folder and the sidebar handles every file type without a separate viewer.
+
+![Directory mode showing a JSON config file with syntax highlighting and the sidebar listing markdown, JSON, and config files](docs/images/directory-mode.png)
+
+| File | Rendered as |
+| --- | --- |
+| `.md` / `.markdown` | GitHub-flavored markdown + Mermaid + comments |
+| `.html` / `.htm` | The HTML itself, with live reload and comments injected |
+| Code (100+ languages) | Chroma syntax highlighting |
+| `.pdf` | Embedded viewer |
+| `.txt` / `.log` / other text | Wrapped `<pre>` block |
+| Anything else | Served as a raw static asset |
+
+The sidebar persists expand/collapse state across reloads. Drag the right edge to resize. Drag a file row onto Finder/Explorer (Chromium browsers) and you get a real local copy. Hit **Edit** on markdown, plain text, or `.serveignore` to edit in place; other files open in your normal editor.
 
 ## Install
 
-### macOS / Linux
+macOS / Linux:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/ericbryant24/serve/main/install.sh | sh
 ```
 
-### Windows (PowerShell)
+Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/ericbryant24/serve/main/install.ps1 | iex
 ```
 
-Re-run the same command to update to the latest version.
+Re-run to update. Or grab a binary from [Releases](https://github.com/ericbryant24/serve/releases/latest).
 
-### Manual download
-
-Go to [Releases](https://github.com/ericbryant24/serve/releases/latest), download the archive for your platform, extract it, and place the `serve` binary somewhere on your `PATH`.
-
-### Verify your installation
+Verify:
 
 ```bash
 serve --version
 ```
 
-This should print `serve` followed by a version number (e.g. `serve 1.0.0`). If it prints something else or errors, you may have an older Python version of `serve` on your PATH — re-run the install script above to replace it with the current Go version.
+If you have an older Python `serve` on PATH, the installer replaces it.
 
-### Build from source
+## Usage
 
-Requires [Go](https://go.dev/dl/) 1.21+.
+```bash
+serve document.md           # serve a single file
+serve .                     # serve the current directory
+serve docs/                 # serve any directory
+
+serve doc.md -p 3000        # specific port
+serve doc.md --host 0.0.0.0 # bind elsewhere
+serve doc.md --no-open      # skip opening a tab
+serve doc.md --data-url     # copy a self-contained data URL to clipboard
+```
+
+### Comments
+
+In the browser: select text → click the **Comment** button → type → Ctrl+Enter. Click highlighted text to open the thread; use Reply / Resolve / Delete from the popover.
+
+From the CLI:
+
+```bash
+serve comments doc.md           # list all comments as JSON
+serve resolve doc.md <id>...    # mark one or more resolved
+serve watch doc.md              # stream comment events as JSONL
+serve watch                     # stream events for every file in the store
+serve watch doc.md --new        # only new comments and replies
+```
+
+### Managing running instances
+
+```bash
+serve list             # what's running (--json for scripting)
+serve kill <pid>       # stop one
+serve kill --port N    # stop the one on port N
+serve kill --all       # stop everything
+serve home             # browser dashboard of all running instances
+```
+
+## How comments are stored
+
+Comments live at `~/.serve/comments/<key>.json`. **Source files are never modified.**
+
+The key is derived from the file's inode and device number on Unix, so comments follow the file through `mv` and `git mv`. On Windows the key falls back to a hash of the absolute path.
+
+If an external editor rewrites the file atomically (VS Code, JetBrains, vim with default settings — anything using write-temp + `rename(2)`), the inode flips. The store handles this: each `.json` file records its source `path`, and a missing-store read finds the orphan by path and migrates it. Your comment history follows you across editor sessions.
+
+## REST API
+
+While the server is running, comments are also reachable over HTTP:
+
+```bash
+curl http://localhost:8000/api/comments
+curl -X POST http://localhost:8000/api/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"...","anchor_text":"...","source_line_start":5,"source_line_end":5}'
+curl -X PATCH http://localhost:8000/api/comments/<id> \
+  -H 'Content-Type: application/json' \
+  -d '{"resolved":true}'
+curl -X DELETE http://localhost:8000/api/comments/<id>
+```
+
+## Build from source
+
+Requires Go 1.21+.
 
 ```bash
 git clone https://github.com/ericbryant24/serve.git
@@ -44,9 +169,9 @@ cd serve
 go install .
 ```
 
-This places the binary in `$(go env GOPATH)/bin`, which Go adds to your `PATH` by default.
+The binary lands in `$(go env GOPATH)/bin`.
 
-### Finder Quick Action (macOS)
+## Finder Quick Action (macOS)
 
 Right-click any file or folder in Finder and choose **Quick Actions → Serve**:
 
@@ -55,138 +180,4 @@ cd quick-action
 sh install-quick-action.sh
 ```
 
-This copies `Serve.workflow` to `~/Library/Services/` and refreshes the Services menu. Run it again to update. You may need to relaunch Finder (`killall Finder`) for the item to appear the first time.
-
-## Usage
-
-```bash
-# Serve a markdown file (opens browser, live reloads on save)
-serve document.md
-
-# Serve an HTML file
-serve page.html
-
-# Serve a directory (sidebar + all file types)
-serve .
-serve ./docs/
-
-# Specify port and host
-serve document.md -p 3000 --host 0.0.0.0
-
-# Don't open browser automatically
-serve document.md --no-open
-
-# Generate a self-contained data URL (copied to clipboard)
-serve document.md --data-url
-```
-
-### Managing running instances
-
-```bash
-# List every running serve (table view; --json for scripting)
-serve list
-
-# Stop a specific instance
-serve kill <pid>
-serve kill --port 8001
-
-# Stop them all
-serve kill --all
-
-# Open a browser dashboard showing all running instances (default port 7070)
-serve home
-```
-
-## Directory Mode
-
-Pass a directory path to serve all files with a sidebar navigation panel.
-
-- **Markdown** (`.md`) — rendered with GitHub-flavored styling + comments
-- **HTML** (`.html`, `.htm`) — served with injected reload script + comments
-- **Code files** (`.json`, `.yaml`, `.py`, `.js`, etc.) — syntax-highlighted via Chroma
-- **PDF** (`.pdf`) — embedded viewer
-- **Plain text** (`.txt`, `.log`, etc.) — rendered in a `<pre>` block
-- **Other files** — served as raw static assets
-
-The sidebar shows the directory tree, highlights the current file, and persists expand/collapse state across reloads. Toggle it with the button in the top-left corner.
-
-## Inline Comments
-
-Select text in the browser to add inline comments. Comments are highlighted in the document and support threaded replies, resolution, and deletion.
-
-### Browser UI
-
-1. Select text in the rendered document
-2. Click the "Comment" button that appears
-3. Write your comment and press Ctrl+Enter (or click Comment)
-4. Click highlighted text to view the comment thread
-5. Use Reply, Resolve, or Delete from the thread popover
-
-### CLI
-
-```bash
-# List all comments on a document (JSON output)
-serve comments document.md
-
-# Resolve comments by ID
-serve resolve document.md <comment-id> [<comment-id>...]
-
-# Stream comment-change events as JSONL (live feed for agents / dashboards)
-serve watch document.md            # one file
-serve watch                        # every file in the store
-serve watch document.md --new      # only fire on new comments/replies
-```
-
-`serve watch` emits one JSON object per line. On startup it replays
-`initial` events for every unresolved comment, then streams `new_comment`,
-`new_reply`, `edited`, `resolved`, `unresolved`, and `deleted` events as
-they happen. Park an agent or shell pipeline on its stdout to react the
-moment a comment lands without polling.
-
-### REST API
-
-When the server is running, comments are also available via HTTP:
-
-```bash
-# List comments
-curl http://localhost:8000/api/comments
-
-# Create a comment
-curl -X POST http://localhost:8000/api/comments \
-  -H 'Content-Type: application/json' \
-  -d '{"text": "Fix this", "anchor_text": "selected text", "source_line_start": 5, "source_line_end": 5}'
-
-# Resolve a comment
-curl -X PATCH http://localhost:8000/api/comments/<id> \
-  -H 'Content-Type: application/json' \
-  -d '{"resolved": true}'
-
-# Delete a comment
-curl -X DELETE http://localhost:8000/api/comments/<id>
-```
-
-### How Comments Are Stored
-
-Comments are stored centrally at `~/.serve/comments/<key>.json`. **Source files are never modified.**
-
-The store key is derived from the file's inode and device number (Unix/macOS/Linux), so comments automatically follow the file when you rename or move it with `mv` or `git mv`. On Windows the key falls back to a hash of the absolute path.
-
-## Agent Integration
-
-Set up integration with AI coding agents so they can preview documents, read comments, and resolve feedback:
-
-```bash
-serve agent-init
-```
-
-Interactive wizard that writes the necessary skill file and instructions. Currently supports Claude Code, with user-level (all projects) or project-level scope.
-
-## Features
-
-- Live reload via WebSocket (watches file and assets for changes)
-- Directory serving with sidebar file navigation
-- Syntax highlighting for 100+ languages via Chroma
-- Mermaid diagram rendering
-- GitHub-flavored markdown styling
-- PDF embedding
-- Self-contained data URL export with inlined images
+You may need to `killall Finder` for the action to appear the first time. Re-run to update.

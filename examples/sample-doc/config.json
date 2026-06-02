@@ -1,0 +1,18 @@
+{
+  "pipeline": {
+    "workers": 8,
+    "chunk_size_mb": 64,
+    "formats": ["csv", "parquet"]
+  },
+  "quotas": {
+    "default_monthly_gb": 50,
+    "overrides": {
+      "org_8a31": 250,
+      "org_72cf": 500
+    }
+  },
+  "notifications": {
+    "email_template": "exports/completed.html",
+    "retry_seconds": 30
+  }
+}
