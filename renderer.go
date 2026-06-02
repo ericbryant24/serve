@@ -611,8 +611,11 @@ func isTextFile(filePath string) bool {
 }
 
 // isEditableFile reports whether fp can be edited in the browser.
-// Only plain prose formats are supported; code files and HTML are excluded.
+// Only plain prose formats and serve's own config file are supported.
 func isEditableFile(fp string) bool {
+	if filepath.Base(fp) == ".serveignore" {
+		return true
+	}
 	switch strings.ToLower(filepath.Ext(fp)) {
 	case ".md", ".markdown", ".txt", ".text":
 		return true

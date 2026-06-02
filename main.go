@@ -43,6 +43,9 @@ func main() {
 		case "home":
 			cmdHome(args[1:])
 			return
+		case "watch":
+			cmdWatch(args[1:])
+			return
 		}
 	}
 	cmdServe(args)
@@ -218,6 +221,7 @@ Subcommands:
   serve agent-init                   Set up agent integration
   serve comments <file>              List inline comments (JSON)
   serve resolve <file> <id> [id...]  Mark comments as resolved
+  serve watch [file] [--new]         Stream comment-change events as JSONL
   serve list                         List running serve instances
   serve kill <pid>... | --all        Stop running serve instances
   serve home [--port N]              Dashboard of running instances (default port 7070)
@@ -239,7 +243,7 @@ func cmdComments(args []string) {
 		os.Exit(1)
 	}
 	docID := storeKeyForFile(filePath)
-	store := NewCommentStore(docID, commentStoreDir())
+	store := NewCommentStoreForFile(filePath, commentStoreDir())
 	comments, err := store.List()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -271,7 +275,7 @@ func cmdResolve(args []string) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	store := NewCommentStore(storeKeyForFile(filePath), commentStoreDir())
+	store := NewCommentStoreForFile(filePath, commentStoreDir())
 	failed := false
 	for _, id := range args[1:] {
 		resolved := true

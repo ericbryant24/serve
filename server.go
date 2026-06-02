@@ -65,9 +65,6 @@ func loadServeIgnore(root string) []string {
 }
 
 func matchesIgnorePatterns(name string, isDir bool, patterns []string) bool {
-	if strings.HasPrefix(name, ".") {
-		return true
-	}
 	for _, pat := range patterns {
 		dirOnly := strings.HasSuffix(pat, "/")
 		p := strings.TrimSuffix(pat, "/")
@@ -171,10 +168,15 @@ type Server struct {
 	dirName       string
 	faviconSeed   string
 
-	mu            sync.Mutex
-	wsClients     map[*websocket.Conn]bool
-	commentStore  *CommentStore
-	commentStores map[string]*CommentStore // directory mode
+	mu        sync.Mutex
+	wsClients map[*websocket.Conn]bool
+	// commentStores is keyed by storeKey (inode-derived), NOT file path.
+	// Keying by storeKey is what makes the cache correct when an external
+	// editor rewrites a file via the write-temp-then-rename idiom: the path
+	// stays the same but the inode (and so the storeKey) changes. Each
+	// request recomputes the current storeKey, so writes always land in the
+	// file the rest of the toolchain reads from.
+	commentStores map[string]*CommentStore
 
 	// directory mode file tree cache
 	ignorePatterns []string
@@ -257,13 +259,14 @@ func (s *Server) notifyFileTree(tree []FileNode) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) getStoreForFile(fp string) (*CommentStore, error) {
+	key := storeKeyForFile(fp)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if store, ok := s.commentStores[fp]; ok {
+	if store, ok := s.commentStores[key]; ok {
 		return store, nil
 	}
-	store := NewCommentStore(storeKeyForFile(fp), commentStoreDir())
-	s.commentStores[fp] = store
+	store := NewCommentStoreForFile(fp, commentStoreDir())
+	s.commentStores[key] = store
 	return store, nil
 }
 
@@ -275,12 +278,7 @@ func (s *Server) getStore(r *http.Request) (*CommentStore, error) {
 		}
 		return s.getStoreForFile(fp)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.commentStore == nil {
-		s.commentStore = NewCommentStore(storeKeyForFile(s.filePath), commentStoreDir())
-	}
-	return s.commentStore, nil
+	return s.getStoreForFile(s.filePath)
 }
 
 func (s *Server) fileFromRequest(r *http.Request) string {
@@ -828,6 +826,7 @@ func (s *Server) Start(ctx context.Context) error {
 		if s.mode == "directory" {
 			err = watchDirectory(s.baseDir, func() {
 				s.treeMu.Lock()
+				s.ignorePatterns = loadServeIgnore(s.baseDir)
 				s.treeDirty = true
 				s.treeMu.Unlock()
 				s.notifyReload()
@@ -865,7 +864,7 @@ func (s *Server) Start(ctx context.Context) error {
 // ---------------------------------------------------------------------------
 
 func commentsForPath(fp string) []Comment {
-	store := NewCommentStore(storeKeyForFile(fp), commentStoreDir())
+	store := NewCommentStoreForFile(fp, commentStoreDir())
 	comments, _ := store.List()
 	return comments
 }
@@ -875,7 +874,9 @@ func commentsForPath(fp string) []Comment {
 // exact anchor position without text searching, which is reliable even when
 // multiple elements share the same source-line annotation (e.g. table cells).
 // Longer anchor texts are processed first to prevent shorter substrings from
-// splitting a longer match.
+// splitting a longer match. Matches inside <script>/<style> blocks are
+// skipped — injecting a span there would break the embedded JS/CSS (e.g.
+// anchor "new" hitting `var ws = new WebSocket(...)` in the reload script).
 func injectCommentAnchors(rendered string, comments []Comment) string {
 	sorted := make([]Comment, len(comments))
 	copy(sorted, comments)
@@ -903,15 +904,75 @@ func injectCommentAnchors(rendered string, comments []Comment) string {
 			}
 		}
 
-		rel := strings.Index(rendered[startPos:], search)
-		if rel < 0 {
+		// Recompute skip regions each iteration — previously-inserted markers
+		// shift offsets — and find the first match outside any of them.
+		skip := scriptStyleRegions(rendered)
+		idx := findOutsideRegions(rendered, search, startPos, skip)
+		if idx < 0 {
 			continue
 		}
-		idx := startPos + rel
 		marker := `<span data-comment-anchor="` + c.ID + `" style="display:none"></span>`
 		rendered = rendered[:idx] + marker + rendered[idx:]
 	}
 	return rendered
+}
+
+// scriptStyleRegions returns [start, end) byte ranges that span the *body* of
+// every <script> and <style> element in html. Tag names are matched
+// case-insensitively. Unterminated tags are treated as extending to EOF.
+func scriptStyleRegions(html string) [][2]int {
+	lower := strings.ToLower(html)
+	var regions [][2]int
+	for _, tag := range []string{"script", "style"} {
+		open := "<" + tag
+		closeTag := "</" + tag + ">"
+		pos := 0
+		for {
+			s := strings.Index(lower[pos:], open)
+			if s < 0 {
+				break
+			}
+			s += pos
+			gt := strings.IndexByte(lower[s:], '>')
+			if gt < 0 {
+				break
+			}
+			bodyStart := s + gt + 1
+			c := strings.Index(lower[bodyStart:], closeTag)
+			end := len(html)
+			if c >= 0 {
+				end = bodyStart + c
+			}
+			regions = append(regions, [2]int{bodyStart, end})
+			pos = end + len(closeTag)
+			if pos > len(html) {
+				pos = len(html)
+			}
+		}
+	}
+	return regions
+}
+
+func findOutsideRegions(haystack, needle string, start int, regions [][2]int) int {
+	pos := start
+	for {
+		rel := strings.Index(haystack[pos:], needle)
+		if rel < 0 {
+			return -1
+		}
+		abs := pos + rel
+		inside := false
+		for _, r := range regions {
+			if abs >= r[0] && abs < r[1] {
+				pos = r[1]
+				inside = true
+				break
+			}
+		}
+		if !inside {
+			return abs
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

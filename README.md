@@ -130,7 +130,18 @@ serve comments document.md
 
 # Resolve comments by ID
 serve resolve document.md <comment-id> [<comment-id>...]
+
+# Stream comment-change events as JSONL (live feed for agents / dashboards)
+serve watch document.md            # one file
+serve watch                        # every file in the store
+serve watch document.md --new      # only fire on new comments/replies
 ```
+
+`serve watch` emits one JSON object per line. On startup it replays
+`initial` events for every unresolved comment, then streams `new_comment`,
+`new_reply`, `edited`, `resolved`, `unresolved`, and `deleted` events as
+they happen. Park an agent or shell pipeline on its stdout to react the
+moment a comment lands without polling.
 
 ### REST API
 

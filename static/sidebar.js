@@ -73,6 +73,25 @@
     dir.classList.toggle('open');children.classList.toggle('collapsed');
     var s=getState();s[key]=dir.classList.contains('open');saveState(s);
   });
+  // Drag a sidebar file out of the browser to materialize a real file
+  // in Finder/Explorer (Chromium's DownloadURL convention).
+  var mimeMap={md:'text/markdown',markdown:'text/markdown',html:'text/html',htm:'text/html',txt:'text/plain',log:'text/plain',json:'application/json',yaml:'application/x-yaml',yml:'application/x-yaml',xml:'application/xml',css:'text/css',js:'text/javascript',ts:'text/plain',tsx:'text/plain',jsx:'text/plain',go:'text/plain',py:'text/x-python',rb:'text/plain',rs:'text/plain',java:'text/plain',c:'text/plain',h:'text/plain',cpp:'text/plain',sh:'text/plain',csv:'text/csv',tsv:'text/tab-separated-values',toml:'text/plain',svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',pdf:'application/pdf'};
+  function mimeFor(name){var ext=name.split('.').pop().toLowerCase();return mimeMap[ext]||'application/octet-stream';}
+  tree.addEventListener('dragstart',function(e){
+    var a=e.target.closest('.sidebar-file');if(!a)return;
+    var href=a.getAttribute('href')||'';
+    var url;try{url=new URL(href,location.href);}catch(err){return;}
+    url.searchParams.set('raw','1');
+    var abs=url.toString();
+    var parts=decodeURIComponent(href.replace(/^\//,'')).split('/');
+    var filename=parts[parts.length-1]||'file';
+    try{
+      e.dataTransfer.setData('DownloadURL',mimeFor(filename)+':'+filename+':'+abs);
+      e.dataTransfer.setData('text/uri-list',abs);
+      e.dataTransfer.setData('text/plain',abs);
+      e.dataTransfer.effectAllowed='copyMove';
+    }catch(err){}
+  });
   function renderSidebar(files){
     tree.innerHTML=renderTree(files,0);
     var active=tree.querySelector('.sidebar-file.active');

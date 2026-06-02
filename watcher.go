@@ -66,6 +66,7 @@ func watch(filePath string, onChange func(), markdownMode bool) error {
 // noisyDirs are directory names that generate high-frequency writes not worth
 // watching — build artifacts, package caches, compiled bytecode.
 var noisyDirs = map[string]bool{
+	".git":         true,
 	"node_modules": true,
 	"__pycache__":  true,
 	"dist":         true,
@@ -78,6 +79,11 @@ var noisyDirs = map[string]bool{
 }
 
 // isIgnoredPath returns true if any path component is hidden or a noisy dir.
+// The watcher is intentionally stricter than the sidebar: dotdirs are skipped
+// here to avoid recursing into tooling caches (.venv, .idea, .pytest_cache,
+// .cursor, .claude, ...) that would overflow fsnotify limits and trigger
+// spurious reloads. The sidebar still lists dotfiles so users can view/edit
+// .serveignore and similar.
 func isIgnoredPath(path, root string) bool {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {

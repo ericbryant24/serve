@@ -31,6 +31,8 @@ func TestIsEditableFile(t *testing.T) {
 		{"data.json", false},
 		{"image.png", false},
 		{"noext", false},
+		{".serveignore", true}, // serve's own config file is editable
+		{".env", false},        // other dotfiles are not
 	}
 	for _, tc := range cases {
 		got := isEditableFile(filepath.Join(t.TempDir(), tc.name))

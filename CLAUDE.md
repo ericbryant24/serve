@@ -5,20 +5,22 @@ Markdown/HTML document server with live reload and inline comments.
 ## Architecture
 
 ```
-main.go           — CLI entry point, subcommand dispatch (comments, resolve, list, kill, agent-init)
+main.go           — CLI entry point, subcommand dispatch (comments, resolve, watch, list, kill, agent-init)
 server.go         — net/http server: page, WebSocket, static files, comment API
 renderer.go       — goldmark rendering with source line annotations, Chroma syntax highlighting
 templates.go      — html/template page builder (wrapMarkdown, wrapCode, etc.) + inject helpers
 static/page.gohtml — HTML page skeleton (embedded via go:embed)
 static/*.css/js   — Comment UI, vim mode, zoom, sidebar, presentation assets (embedded)
-comments.go       — Comment model, inode-based store key, JSON persistence
+comments.go       — Comment model, inode-based store key, JSON persistence (wrapped {path, comments} on disk)
 watcher.go        — fsnotify file watcher with trailing-edge debounce (50ms)
+watch.go          — `serve watch` subcommand: JSONL event stream over the comment store
 instances.go      — Process discovery via ps/lsof (no registry)
 marp.go           — Marp slide deck support
 dataurl.go        — Self-contained data URL generation
 agent_init.go     — Interactive agent integration setup wizard
 comments_test.go  — Unit tests for comment store, store key, watcher filter
 templates_test.go — Unit tests for page rendering, XSS escaping, wrap functions
+watch_test.go     — Unit tests for serve watch diff logic
 ```
 
 ## Key Concepts
@@ -41,19 +43,29 @@ When the server is running:
 CLI (no server needed):
 - `serve comments <file>` — list comments as JSON
 - `serve resolve <file> <id>...` — mark comments resolved
+- `serve watch [file] [--new]` — stream comment-change events as JSONL
 
 ## Commands
 
 ```bash
-serve file.md          # serve a single file
-serve .                # serve a directory (sidebar + all file types)
-serve comments file.md # list comments
-serve resolve file.md <id> # resolve comment
-serve agent-init       # set up agent integration (Claude Code)
-serve list             # list running instances (also: --json)
-serve kill <pid>       # stop one (also: --port N, --all, --force)
-serve home             # browser dashboard of all running instances (default port 7070)
+serve file.md             # serve a single file
+serve .                   # serve a directory (sidebar + all file types)
+serve comments file.md    # list comments
+serve resolve file.md <id># resolve comment
+serve watch file.md       # stream events for one file
+serve watch               # stream events for every file in the store
+serve watch file.md --new # filter to new_comment/new_reply only
+serve agent-init          # set up agent integration (Claude Code)
+serve list                # list running instances (also: --json)
+serve kill <pid>          # stop one (also: --port N, --all, --force)
+serve home                # browser dashboard of all running instances (default port 7070)
 ```
+
+`serve watch` writes one JSON object per line. Event types: `initial` (one
+per existing unresolved comment at startup), `new_comment`, `new_reply`,
+`edited`, `resolved`, `unresolved`, `deleted`. The comment store JSON now
+includes a `path` field so the all-files watcher can populate `file` on
+every event. Legacy bare-array stores still load.
 
 ## Rebuild & Install
 
