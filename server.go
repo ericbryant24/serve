@@ -360,7 +360,7 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, rerr.Error(), 500)
 			return
 		}
-		htmlStr = injectReloadScript(string(data), nil, nil, s.faviconSeed, true, false)
+		htmlStr = injectReloadScript(string(data), nil, nil, s.faviconSeed, "", true, false)
 	}
 
 	if coms := commentsForPath(s.filePath); len(coms) > 0 {
@@ -407,6 +407,23 @@ var imageExts = map[string]bool{
 	".svg": true, ".webp": true, ".bmp": true, ".ico": true,
 }
 
+// fileMetaJSON returns a JSON object describing the currently-viewed file for
+// the sidebar header: its name plus formatted created and modified dates.
+// "created" is empty when the platform can't report a birth time.
+func fileMetaJSON(fi os.FileInfo) string {
+	const layout = "Jan 2, 2006 3:04 PM"
+	m := map[string]string{
+		"name":     fi.Name(),
+		"modified": fi.ModTime().Format(layout),
+		"created":  "",
+	}
+	if bt, ok := fileBirthTime(fi); ok && !bt.IsZero() {
+		m["created"] = bt.Format(layout)
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
 func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 	relPath := r.URL.Path
 	if strings.HasPrefix(relPath, "/") {
@@ -449,7 +466,8 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := wrapOptions{sidebar: sidebar, fileTree: tree, faviconPath: s.faviconSeed}
+	metaJS := fileMetaJSON(fi)
+	opts := wrapOptions{sidebar: sidebar, fileTree: tree, faviconPath: s.faviconSeed, fileMetaJS: metaJS}
 
 	switch ext {
 	case ".md":
@@ -477,7 +495,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, rerr.Error(), 500)
 			return
 		}
-		htmlStr := injectReloadScript(string(data), sidebar, tree, s.faviconSeed, true, false)
+		htmlStr := injectReloadScript(string(data), sidebar, tree, s.faviconSeed, metaJS, true, false)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, htmlStr)
 

@@ -45,13 +45,26 @@
   var activeAncestors={};
   if(currentPath){var parts=currentPath.split('/');for(var i=1;i<parts.length;i++){activeAncestors[parts.slice(0,i).join('/')]=true;}}
   function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+  // Current-file meta block: filename + created/modified dates in the header.
+  (function(){
+    var info=window.__serveFile;if(!info)return;
+    var header=document.getElementById('serve-sidebar-header');if(!header)return;
+    var meta=document.createElement('div');meta.id='serve-file-meta';
+    var h='<div class="file-meta-name" title="'+esc(info.name)+'">'+esc(info.name)+'</div>';
+    if(info.created)h+='<div class="file-meta-row"><span class="file-meta-label">Created</span><span>'+esc(info.created)+'</span></div>';
+    if(info.modified)h+='<div class="file-meta-row"><span class="file-meta-label">Modified</span><span>'+esc(info.modified)+'</span></div>';
+    meta.innerHTML=h;
+    header.insertAdjacentElement('afterend',meta);
+  })();
   function renderTree(items,depth){
     var s=getState();var html='';
     items.forEach(function(item){
       var pad='padding-left:'+(12+depth*16)+'px;';
       if(item.type==='dir'){
         var dirKey='dir:'+item.path;var stored=s[dirKey];
-        var isOpen=stored===true||(stored===undefined&&activeAncestors[item.path]===true);
+        // Folders containing the active file always open, even if previously
+        // collapsed, so navigating to a file via a link reveals it in the tree.
+        var isOpen=activeAncestors[item.path]===true||stored===true;
         html+='<div class="sidebar-group" style="--depth:'+depth+';">';
         html+='<div class="sidebar-dir'+(isOpen?' open':'')+'" style="'+pad+'" data-dir="'+item.path+'">'+esc(item.name)+'</div>';
         html+='<div class="sidebar-children'+(isOpen?'':' collapsed')+'" data-dir-children="'+item.path+'">';

@@ -199,6 +199,7 @@ type wrapOptions struct {
 	sidebar     *[2]string // [dirName, currentPath]
 	fileTree    []FileNode
 	faviconPath string
+	fileMetaJS  string // JSON for window.__serveFile (current file name + dates)
 	isMarp      bool
 	extraCSS    string
 	showEdit    bool
@@ -222,6 +223,7 @@ type pageData struct {
 	SidebarDirName string
 	SidebarPath    template.JS
 	FileTree       template.JS
+	CurrentFile    template.JS
 	Content        template.HTML
 	ReloadScript   template.JS
 	CommentJS      template.JS
@@ -271,6 +273,10 @@ func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
 		d.SidebarDirName = opts.sidebar[0]
 		d.SidebarPath    = template.JS(jsString(opts.sidebar[1]))
 		d.FileTree       = template.JS(string(treeJSON))
+		d.CurrentFile    = template.JS("null")
+		if opts.fileMetaJS != "" {
+			d.CurrentFile = template.JS(opts.fileMetaJS)
+		}
 		d.SidebarCSS     = template.CSS(sidebarCSS)
 		d.SidebarJS      = template.JS(sidebarJS)
 	}
@@ -520,7 +526,7 @@ func annotateHTMLSourceLines(html string) string {
 }
 
 // injectReloadScript injects scripts into an existing HTML document.
-func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, faviconPath string, annotate, bare bool) string {
+func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, faviconPath, fileMetaJS string, annotate, bare bool) string {
 	if annotate {
 		html = annotateHTMLSourceLines(html)
 	}
@@ -546,9 +552,13 @@ func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, fa
 				tree = []FileNode{}
 			}
 			treeJSON, _ := json.Marshal(tree)
+			fileGlobal := "null"
+			if fileMetaJS != "" {
+				fileGlobal = fileMetaJS
+			}
 			scriptParts.WriteString(fmt.Sprintf(
-				"<script>window.__servePath = %s; window.__serveFileTree = %s;</script>\n",
-				jsString(sidebar[1]), string(treeJSON),
+				"<script>window.__servePath = %s; window.__serveFileTree = %s; window.__serveFile = %s;</script>\n",
+				jsString(sidebar[1]), string(treeJSON), fileGlobal,
 			))
 			scriptParts.WriteString(
 				`<nav id="serve-sidebar">` +
