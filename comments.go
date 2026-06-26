@@ -182,6 +182,37 @@ func (s *CommentStore) Add(text, anchorText, blockText string, lineStart, lineEn
 	return &c, s.save(comments)
 }
 
+// Reply adds a reply to an existing comment, threading it under parentID.
+// It returns (nil, nil) if no comment with parentID exists, so callers can
+// distinguish a bad parent from a storage error.
+func (s *CommentStore) Reply(parentID, text string) (*Comment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	comments, _, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for i := range comments {
+		if comments[i].ID == parentID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, nil
+	}
+	pid := parentID
+	c := Comment{
+		ID:        generateFullUUID(),
+		Text:      text,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		ParentID:  &pid,
+	}
+	comments = append(comments, c)
+	return &c, s.save(comments)
+}
+
 func (s *CommentStore) Update(id string, text *string, resolved *bool) (*Comment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -42,6 +42,7 @@ When the server is running:
 
 CLI (no server needed):
 - `serve comments <file>` — list comments as JSON
+- `serve reply <file> <id> <text>` — reply to a comment (threads under it via `parent_id`)
 - `serve resolve <file> <id>...` — mark comments resolved
 - `serve watch [file] [--new]` — stream comment-change events as JSONL
 
@@ -51,6 +52,7 @@ CLI (no server needed):
 serve file.md             # serve a single file
 serve .                   # serve a directory (sidebar + all file types)
 serve comments file.md    # list comments
+serve reply file.md <id> "looks good"  # reply to a comment
 serve resolve file.md <id># resolve comment
 serve watch file.md       # stream events for one file
 serve watch               # stream events for every file in the store

@@ -30,7 +30,10 @@ serve watch docs/spec.md --new
 serve comments docs/spec.md
 # → JSON: anchor_text, source line numbers, comment text, IDs
 
-# Agent edits the file, then resolves
+# Agent can reply to ask a question or note what it did...
+serve reply docs/spec.md <comment-id> "Reworded — does this read better?"
+
+# ...then resolves once the feedback is addressed
 serve resolve docs/spec.md <comment-id>
 ```
 
@@ -120,6 +123,7 @@ From the CLI:
 
 ```bash
 serve comments doc.md           # list all comments as JSON
+serve reply doc.md <id> "text"  # reply to a comment (threads under it)
 serve resolve doc.md <id>...    # mark one or more resolved
 serve watch doc.md              # stream comment events as JSONL
 serve watch                     # stream events for every file in the store

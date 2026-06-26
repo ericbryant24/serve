@@ -34,6 +34,9 @@ func main() {
 		case "resolve":
 			cmdResolve(args[1:])
 			return
+		case "reply":
+			cmdReply(args[1:])
+			return
 		case "list", "ls":
 			cmdList(args[1:])
 			return
@@ -220,6 +223,7 @@ Flags:
 Subcommands:
   serve agent-init                   Set up agent integration
   serve comments <file>              List inline comments (JSON)
+  serve reply <file> <id> <text>     Reply to a comment
   serve resolve <file> <id> [id...]  Mark comments as resolved
   serve watch [file] [--new]         Stream comment-change events as JSONL
   serve list                         List running serve instances
@@ -295,6 +299,44 @@ func cmdResolve(args []string) {
 	if failed {
 		os.Exit(1)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// reply subcommand
+// ---------------------------------------------------------------------------
+
+func cmdReply(args []string) {
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Println("Usage: serve reply <file> <comment-id> <text>")
+		return
+	}
+	if len(args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: serve reply <file> <comment-id> <text>")
+		os.Exit(1)
+	}
+	filePath, err := resolveFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	parentID := args[1]
+	text := strings.TrimSpace(strings.Join(args[2:], " "))
+	if text == "" {
+		fmt.Fprintln(os.Stderr, "Error: reply text is required")
+		os.Exit(1)
+	}
+	store := NewCommentStoreForFile(filePath, commentStoreDir())
+	comment, err := store.Reply(parentID, text)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	if comment == nil {
+		fmt.Fprintf(os.Stderr, "Not found: %s\n", parentID)
+		os.Exit(1)
+	}
+	data, _ := json.MarshalIndent(comment, "", "  ")
+	fmt.Println(string(data))
 }
 
 // ---------------------------------------------------------------------------

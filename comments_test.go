@@ -59,6 +59,45 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
+func TestReply(t *testing.T) {
+	s := newTestStore(t)
+	parent, _ := s.Add("question", "anchor", "block", nil, nil, nil)
+
+	reply, err := s.Reply(parent.ID, "here's an answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply == nil {
+		t.Fatal("Reply returned nil for existing parent")
+	}
+	if reply.ParentID == nil || *reply.ParentID != parent.ID {
+		t.Fatalf("reply ParentID = %v, want %q", reply.ParentID, parent.ID)
+	}
+	if reply.Text != "here's an answer" {
+		t.Fatalf("got %q, want %q", reply.Text, "here's an answer")
+	}
+
+	comments, _ := s.List()
+	if len(comments) != 2 {
+		t.Fatalf("got %d comments, want 2", len(comments))
+	}
+}
+
+func TestReplyNonExistentParent(t *testing.T) {
+	s := newTestStore(t)
+	reply, err := s.Reply("no-such-id", "orphan reply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != nil {
+		t.Fatal("expected nil reply for missing parent")
+	}
+	comments, _ := s.List()
+	if len(comments) != 0 {
+		t.Fatalf("got %d comments, want 0 (no reply should be stored)", len(comments))
+	}
+}
+
 func TestUpdateNonExistent(t *testing.T) {
 	s := newTestStore(t)
 	result, err := s.Update("no-such-id", nil, nil)
