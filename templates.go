@@ -302,12 +302,16 @@ func wrapMarkdown(title, content string, opts wrapOptions) string {
 }
 
 func wrapCode(title, highlightedHTML string, opts wrapOptions) string {
+	// Code files get the full window width, and long lines soft-wrap instead
+	// of relying on a horizontal scrollbar at the bottom of the page.
+	opts.extraCSS += "\n    body { max-width: none; }\n    pre.chroma { white-space: pre-wrap; word-break: break-word; }"
 	data := buildPageData(title, opts, false)
 	data.Content = template.HTML(`<div id="serve-content">` + highlightedHTML + `</div>`)
 	return renderPage(data)
 }
 
 func wrapPlain(title, text string, opts wrapOptions) string {
+	opts.extraCSS += "\n    body { max-width: none; }"
 	data := buildPageData(title, opts, false)
 	data.Content = template.HTML(
 		`<div id="serve-content"><pre style="white-space:pre-wrap;word-break:break-word;">` +

@@ -146,7 +146,7 @@ class TestCommentWorkflow:
     def test_submit_comment_creates_highlight(self, md_page: Page):
         select_text_in_first_paragraph(md_page)
         md_page.click("#comment-btn")
-        ta = md_page.locator("textarea").first
+        ta = md_page.locator(".comment-form textarea")
         expect(ta).to_be_visible(timeout=2000)
         ta.fill("A test comment from Playwright")
         md_page.keyboard.press("Control+Enter")
@@ -193,7 +193,7 @@ class TestCommentWorkflow:
 
         select_text_in_first_paragraph(md_page)
         md_page.click("#comment-btn")
-        ta = md_page.locator("textarea").first
+        ta = md_page.locator(".comment-form textarea")
         expect(ta).to_be_visible(timeout=2000)
         ta.fill("Badge test comment")
         md_page.keyboard.press("Control+Enter")
