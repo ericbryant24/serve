@@ -113,29 +113,22 @@ func cmdServe(args []string) {
 		os.Exit(1)
 	}
 
-	// Determine mode
-	var mode string
-	if fi, err := os.Stat(filePath); err == nil && fi.IsDir() {
-		mode = "directory"
-	} else {
-		ext := strings.ToLower(filepath.Ext(filePath))
-		switch ext {
-		case ".md":
-			mode = "markdown"
-		case ".html", ".htm":
-			mode = "html"
-		default:
-			fmt.Fprintf(os.Stderr, "Error: unsupported file type '%s' (use .html, .htm, or .md)\n", ext)
-			os.Exit(1)
-		}
-	}
-
 	if dataURL {
-		if mode == "directory" {
+		if fi, err := os.Stat(filePath); err == nil && fi.IsDir() {
 			fmt.Fprintln(os.Stderr, "Error: --data-url is not supported for directories")
 			os.Exit(1)
 		}
-		url, err := generateDataURL(filePath, mode)
+		var kind string
+		switch strings.ToLower(filepath.Ext(filePath)) {
+		case ".md":
+			kind = "markdown"
+		case ".html", ".htm":
+			kind = "html"
+		default:
+			fmt.Fprintln(os.Stderr, "Error: --data-url supports .md and .html files only")
+			os.Exit(1)
+		}
+		url, err := generateDataURL(filePath, kind)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
@@ -151,7 +144,7 @@ func cmdServe(args []string) {
 		return
 	}
 
-	srv := NewServer(filePath, mode, host, port)
+	srv := NewServer(filePath, host, port)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -208,14 +201,15 @@ func resolveFile(arg string) (string, error) {
 }
 
 func printServeUsage() {
-	fmt.Print(`Usage: serve [file] [flags]
+	fmt.Print(`Usage: serve [path] [flags]
 
-Serve a markdown or HTML file with live reload and inline comments,
-or a directory with sidebar navigation.
+Serve a directory with live reload, a file sidebar, and inline comments.
+A single file opens its containing directory, positioned at that file.
 
 Arguments:
-  file         File (.html, .htm, .md) or directory to serve.
-               Defaults to index.html if present, otherwise current directory.
+  path         File or directory to serve. A file opens its containing
+               directory positioned at that file. Defaults to the current
+               directory (or index.html if present).
 
 Flags:
   -p, --port N    Port to serve on (default: 8000)

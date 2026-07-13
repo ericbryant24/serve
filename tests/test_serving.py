@@ -1,7 +1,9 @@
 """
 Black-box tests for page serving behavior.
-Covers markdown rendering, HTML injection, directory mode, and data URL generation.
+Covers markdown rendering, HTML injection, and directory mode.
 """
+
+import time
 
 from conftest import ServeServer
 
@@ -104,23 +106,8 @@ class TestHtmlServing:
         assert "text/html" in r.headers.get("content-type", "")
 
 
-class TestDataUrl:
-    def test_data_url_endpoint_returns_200(self, md_server: ServeServer):
-        r = md_server.get("/__data_url")
-        assert r.status_code == 200
-
-    def test_data_url_starts_with_scheme(self, md_server: ServeServer):
-        r = md_server.get("/__data_url")
-        body = r.text.strip()
-        assert body.startswith("data:text/html;base64,")
-
-    def test_data_url_is_valid_base64(self, md_server: ServeServer):
-        import base64
-        r = md_server.get("/__data_url")
-        body = r.text.strip()
-        _, b64 = body.split(",", 1)
-        decoded = base64.b64decode(b64).decode("utf-8")
-        assert "Hello World" in decoded
+# Note: the data-url feature is now CLI-only (`serve --data-url`); there is no
+# HTTP endpoint. Its behavior is covered by TestGenerateDataURL_Markdown in Go.
 
 
 class TestDirectoryModeServing:
@@ -172,9 +159,16 @@ class TestDirectoryModeServing:
         for node in files:
             check_node(node)
 
-    def test_api_files_excludes_hidden_files(self, dir_server: ServeServer, dir_tree):
-        hidden = dir_tree / ".hidden_file.md"
-        hidden.write_text("hidden")
+    def test_api_files_lists_dotfiles_and_honors_serveignore(
+        self, dir_server: ServeServer, dir_tree
+    ):
+        # Dotfiles are intentionally listed in the sidebar (so users can open
+        # .serveignore and similar); the .serveignore glob patterns are the knob
+        # that excludes files from the tree.
+        (dir_tree / ".hidden_file.md").write_text("hidden")
+        (dir_tree / "skip_me.md").write_text("nope")
+        (dir_tree / ".serveignore").write_text("skip_me.md\n")
+        time.sleep(0.25)  # let the watcher rebuild the tree with the new ignore
         r = dir_server.get("/api/files")
         all_names = []
 
@@ -184,7 +178,8 @@ class TestDirectoryModeServing:
                 collect(n.get("children", []))
 
         collect(r.json()["files"])
-        assert ".hidden_file.md" not in all_names
+        assert "skip_me.md" not in all_names  # excluded by .serveignore pattern
+        assert ".hidden_file.md" in all_names  # dotfiles are listed by design
 
     def test_relative_links_preserved(self, dir_server: ServeServer):
         r = dir_server.get("/README.md")

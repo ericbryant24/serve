@@ -6,7 +6,7 @@ That's the loop `serve` is built for.
 
 ![A markdown doc rendered in serve with a comment popover open over a highlighted sentence](docs/images/hero-comment.png)
 
-`serve` is a local document previewer for markdown, HTML, code files, PDFs, images, and directories of all of those. It opens a browser tab, live-reloads on save, and renders everything sensibly out of the box. The piece you won't find in other previewers is the comment system: select text in the browser, write a note, and the comment is anchored to that exact passage. Source files are never modified — comments live in `~/.serve/comments/` and follow files through `mv` and `git mv`.
+`serve` is a local document previewer for markdown, HTML, code files, PDFs, images, and directories of all of those. It opens a browser tab, live-reloads on save, and renders everything sensibly out of the box. The piece you won't find in other previewers is the comment system: select text in the browser, write a note, and the comment is anchored to that exact passage. Source files are never modified; comments live in `~/.serve/comments/` and follow files through `mv` and `git mv`.
 
 ## When it's useful
 
@@ -45,7 +45,7 @@ serve resolve docs/spec.md <comment-id>
 serve agent-init
 ```
 
-This is the one command that wires Claude into the loop. It installs a `serve` skill that teaches Claude about `serve comments`, `serve resolve`, and `serve watch`. After running it once, you can say things like *"address the comments on this doc"* or *"watch this file and fix new feedback as it comes in"* — Claude reads, edits, resolves.
+This is the one command that wires Claude into the loop. It installs a `serve` skill that teaches Claude about `serve comments`, `serve resolve`, and `serve watch`. After running it once, you can say things like *"address the comments on this doc"* or *"watch this file and fix new feedback as it comes in"*. Claude reads, edits, resolves.
 
 Currently supports Claude Code only. Choose user-level scope (`~/.claude/`, available in every project) or project-level scope (`./.claude/`, this project only). Re-run any time to refresh the skill.
 
@@ -59,7 +59,7 @@ Once you start using `serve` for the review loop, you end up with one running pe
 serve home            # opens http://localhost:7070
 ```
 
-The list refreshes automatically as you start and stop instances elsewhere. It works the way Activity Monitor does for processes — discover what's running, jump in, or shut things down.
+The list refreshes automatically as you start and stop instances elsewhere. It works the way Activity Monitor does for processes: discover what's running, jump in, or shut things down.
 
 ## Directory mode
 
@@ -76,7 +76,7 @@ Point `serve` at a folder and the sidebar handles every file type without a sepa
 | `.txt` / `.log` / other text | Wrapped `<pre>` block |
 | Anything else | Served as a raw static asset |
 
-The sidebar persists expand/collapse state across reloads. Drag the right edge to resize. Drag a file row onto Finder/Explorer (Chromium browsers) and you get a real local copy. Hit **Edit** on markdown, plain text, or `.serveignore` to edit in place; other files open in your normal editor.
+The sidebar persists expand/collapse state across reloads. Drag the right edge to resize. The **↑** button in the header serves the parent directory, so you can climb out of a subfolder without restarting. Drag a file row onto Finder/Explorer (Chromium browsers) and you get a real local copy. Hit **Edit** on markdown, plain text, or `.serveignore` to edit in place; other files open in your normal editor.
 
 ## Install
 
@@ -105,7 +105,7 @@ If you have an older Python `serve` on PATH, the installer replaces it.
 ## Usage
 
 ```bash
-serve document.md           # serve a single file
+serve document.md           # open a document (its folder fills the sidebar)
 serve .                     # serve the current directory
 serve docs/                 # serve any directory
 

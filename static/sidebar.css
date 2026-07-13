@@ -3,7 +3,9 @@
     #serve-sidebar { position: fixed; top: 0; left: 0; width: var(--serve-sidebar-w); height: 100vh; background: #f6f8fa; border-right: 1px solid #d0d7de; overflow-y: auto; z-index: 900; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; transform: translateX(0); transition: transform 0.2s ease; --serve-sidebar-header-h: 48px; --serve-sidebar-row-h: 24px; }
     #serve-sidebar.collapsed { transform: translateX(calc(var(--serve-sidebar-w) * -1)); }
     #serve-sidebar-header { position: sticky; top: 0; height: var(--serve-sidebar-header-h); box-sizing: border-box; background: #f6f8fa; padding: 0 16px; border-bottom: 1px solid #d0d7de; font-weight: 600; font-size: 14px; line-height: 47px; color: #24292e; display: flex; align-items: center; justify-content: space-between; z-index: 2; }
-    #serve-sidebar-header .dir-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #serve-sidebar-header .dir-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    #serve-sidebar-up { flex: none; margin-right: 8px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; background: transparent; border: 1px solid #d0d7de; border-radius: 6px; cursor: pointer; color: #656d76; font-size: 14px; line-height: 1; }
+    #serve-sidebar-up:hover { background: #e8e8e8; color: #24292e; }
     #serve-file-meta { padding: 8px 16px; border-bottom: 1px solid #d0d7de; background: #f6f8fa; }
     #serve-file-meta .file-meta-name { font-weight: 600; font-size: 13px; color: #24292e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #serve-file-meta .file-meta-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: #656d76; margin-top: 3px; }

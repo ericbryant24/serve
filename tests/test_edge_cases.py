@@ -227,25 +227,8 @@ class TestReadOnlyFile:
             proc.wait(timeout=10)
 
 
-# ---------------------------------------------------------------------------
-# Data URL: reload WebSocket script stripped
-# ---------------------------------------------------------------------------
-
-class TestDataUrlContent:
-    def test_reload_connect_function_stripped(self, md_server: ServeServer):
-        import base64
-        r = md_server.get("/__data_url")
-        body = r.text.strip()
-        _, b64 = body.split(",", 1)
-        decoded = base64.b64decode(b64).decode("utf-8")
-        assert "function connect()" not in decoded
-
-    def test_page_content_still_present(self, md_server: ServeServer):
-        import base64
-        r = md_server.get("/__data_url")
-        _, b64 = r.text.strip().split(",", 1)
-        decoded = base64.b64decode(b64).decode("utf-8")
-        assert "Hello World" in decoded
+# Note: data-url content behavior (page content present, reload script stripped)
+# is covered by TestGenerateDataURL_Markdown in Go now that data-url is CLI-only.
 
 
 # ---------------------------------------------------------------------------

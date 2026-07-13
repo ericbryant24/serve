@@ -123,13 +123,40 @@
     });
     renderOrphaned(orphaned);
   }
+  // Locate the block element whose text best matches a comment's stored
+  // block_text. Used to re-anchor when stored source-line numbers have gone
+  // stale (e.g. the document was edited above the comment), so the highlight
+  // stays on the original block instead of jumping to an earlier occurrence of
+  // the same anchor text elsewhere in the document.
+  function findBlockByText(blockText) {
+    if (!blockText) return null;
+    var norm = blockText.replace(/\s+/g, ' ').trim();
+    if (!norm) return null;
+    var els = document.querySelectorAll('[data-source-lines], p, li, td, th, blockquote, pre, h1, h2, h3, h4, h5, h6');
+    var best = null, bestLen = Infinity;
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.closest('.comment-popover, .comment-form, .orphaned-comments')) continue;
+      var t = el.textContent.replace(/\s+/g, ' ').trim();
+      if (t === norm) return el; // exact (normalized) block match wins outright
+      if (t.indexOf(norm) !== -1 && t.length < bestLen) { best = el; bestLen = t.length; }
+    }
+    return best; // smallest block containing the stored block text, or null
+  }
   function highlightText(anchorText, commentId, resolved, blockText, lineStart, lineEnd) {
-    // If the server injected a position marker, use its parent as the precise
-    // search root — no text search needed to find the right container.
+    // The server injects a position marker before the anchor; normally its
+    // parent is the precise search root, no text search needed. But a stale
+    // source-line hint can place that marker on the WRONG occurrence after the
+    // document is edited. When block_text identifies a specific block and the
+    // marker isn't inside it, block_text wins — it survives line shifts.
     var marker = document.querySelector('[data-comment-anchor="' + commentId + '"]');
+    var blockEl = findBlockByText(blockText);
+    var markerTrustworthy = marker && !(blockEl && !blockEl.contains(marker));
     var searchRoot;
-    if (marker) {
+    if (markerTrustworthy) {
       searchRoot = marker.parentElement;
+    } else if (blockEl) {
+      searchRoot = blockEl;
     } else {
       var containers = [];
       if (lineStart) {
@@ -198,7 +225,11 @@
     // numbers became stale after frontmatter was added to the file), retry
     // from the full body before giving up.
     if (idx === -1 && searchRoot !== document.body) {
-      searchRoot = document.body;
+      // Prefer the block matching the stored block_text; only widen to the whole
+      // body when it can't be identified. This keeps the comment on its original
+      // block (and original occurrence) after edits shift line numbers, instead
+      // of grabbing the first occurrence of the anchor text in the document.
+      searchRoot = findBlockByText(blockText) || document.body;
       walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT);
       textNodes = []; fullText = '';
       while (walker.nextNode()) {

@@ -23,6 +23,7 @@ which would shift all source line numbers and break source-line scoping.
 import shutil
 import socket
 
+import httpx
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -385,3 +386,73 @@ class TestDirectoryModeAnchoring:
         assert is_in_cell, "Highlight must be inside a table cell in directory mode"
         cell_text = mark.evaluate("el => el.closest('td, th').textContent.trim()")
         assert "alpha" in cell_text, f"Expected 'alpha' cell, got: {cell_text!r}"
+
+
+# ---------------------------------------------------------------------------
+# Anchor survives document edits that shift line numbers
+# ---------------------------------------------------------------------------
+
+class TestAnchorSurvivesLineShift:
+    def test_repeated_anchor_stays_on_its_block_after_lines_inserted(
+        self, page: Page, tmp_path
+    ):
+        """A comment on the 2nd occurrence of a repeated phrase must stay there
+        after the document is edited above it (which makes the stored source
+        line stale). Without block_text disambiguation the highlight jumps to
+        the first occurrence — the bug this guards against.
+        """
+        d = tmp_path / "docs"
+        d.mkdir()
+        f = d / "doc.md"
+        f.write_text(
+            "# Title\n\n"
+            "The quick brown fox in paragraph one.\n\n"
+            "The quick brown fox in paragraph two.\n"
+        )
+        before = set(COMMENTS_DIR.glob("*.json")) if COMMENTS_DIR.exists() else set()
+        port = _free_port()
+        proc, base_url = _start_server(str(f), port)
+        try:
+            # Comment the SECOND occurrence; block_text uniquely identifies it.
+            r = httpx.post(
+                f"{base_url}/api/comments?file=doc.md",
+                json={
+                    "text": "on two",
+                    "anchor_text": "quick brown fox",
+                    "block_text": "The quick brown fox in paragraph two.",
+                    "source_line_start": 5,
+                    "source_line_end": 5,
+                },
+            )
+            assert r.status_code == 200
+
+            page.goto(f"{base_url}/doc.md")
+            page.wait_for_load_state("networkidle")
+            page.wait_for_function(
+                "() => document.querySelectorAll('mark.comment-highlight').length > 0",
+                timeout=6000,
+            )
+            block = page.locator("mark.comment-highlight").first.evaluate(
+                "el => el.closest('p').textContent"
+            )
+            assert "paragraph two" in block, f"initial anchor wrong: {block!r}"
+
+            # Edit: insert paragraphs ABOVE, shifting the commented line down so
+            # the stored source_line_start (5) is now stale.
+            f.write_text(
+                "# Title\n\n"
+                "Inserted one.\n\nInserted two.\n\nInserted three.\n\n"
+                "The quick brown fox in paragraph one.\n\n"
+                "The quick brown fox in paragraph two.\n"
+            )
+            page.wait_for_timeout(2000)  # soft reload + re-anchor via WebSocket
+
+            marks = page.locator("mark.comment-highlight")
+            expect(marks).to_have_count(1, timeout=4000)
+            after = marks.first.evaluate("el => el.closest('p').textContent")
+            assert "paragraph two" in after, f"anchor drifted after edit: {after!r}"
+        finally:
+            proc.terminate()
+            proc.wait(timeout=10)
+            for jf in (set(COMMENTS_DIR.glob("*.json")) - before):
+                jf.unlink(missing_ok=True)

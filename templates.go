@@ -120,6 +120,17 @@ const reloadScriptTag = `<script id="serve-reload-script">` + reloadScript + `</
 const reloadScript = `(function() {
   function connect() {
     var ws = new WebSocket('ws://' + location.host + '/ws');
+    ws.onopen = function() {
+      // On a RE-connect (server restart, laptop sleep, network blip) the page
+      // may be stale: file and tree changes made while the socket was down were
+      // never pushed. Resync by soft-reloading the content and re-fetching the
+      // sidebar tree. The first connect is skipped — the page is already fresh.
+      if (window.__serveConnectedOnce) {
+        if (!window.__serveEditMode) softReload();
+        refreshTree();
+      }
+      window.__serveConnectedOnce = true;
+    };
     ws.onmessage = function(event) {
       var data = JSON.parse(event.data);
       if (data.type === 'reload') {
@@ -135,6 +146,13 @@ const reloadScript = `(function() {
       }
     };
     ws.onclose = function() { setTimeout(connect, 1000); };
+  }
+  function refreshTree() {
+    if (!window.__updateSidebarTree) return;
+    fetch('/api/files', {cache: 'no-store'})
+      .then(function(r) { return r.json(); })
+      .then(function(d) { if (d && d.files) window.__updateSidebarTree(d.files); })
+      .catch(function() {});
   }
   function softReload() {
     var sc = document.getElementById('serve-content');
@@ -249,19 +267,19 @@ func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
 		ReloadScript: template.JS(reloadScript),
 	}
 	if showComments {
-		d.CommentJS  = template.JS(commentJS)
+		d.CommentJS = template.JS(commentJS)
 		d.LinkScript = template.JS(linkScript)
-		d.VimJS      = template.JS(vimJS)
-		d.ZoomJS     = template.JS(zoomJS)
+		d.VimJS = template.JS(vimJS)
+		d.ZoomJS = template.JS(zoomJS)
 	}
 	if opts.isMarp {
 		d.PresentCSS = template.CSS(presentCSS)
-		d.PresentJS  = template.JS(presentJS)
+		d.PresentJS = template.JS(presentJS)
 	}
 	if opts.showEdit {
 		d.ShowEdit = true
-		d.EditCSS  = template.CSS(editCSS)
-		d.EditJS   = template.JS(editJS)
+		d.EditCSS = template.CSS(editCSS)
+		d.EditJS = template.JS(editJS)
 	}
 	if opts.sidebar != nil {
 		tree := opts.fileTree
@@ -269,16 +287,16 @@ func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
 			tree = []FileNode{}
 		}
 		treeJSON, _ := json.Marshal(tree)
-		d.Sidebar        = true
+		d.Sidebar = true
 		d.SidebarDirName = opts.sidebar[0]
-		d.SidebarPath    = template.JS(jsString(opts.sidebar[1]))
-		d.FileTree       = template.JS(string(treeJSON))
-		d.CurrentFile    = template.JS("null")
+		d.SidebarPath = template.JS(jsString(opts.sidebar[1]))
+		d.FileTree = template.JS(string(treeJSON))
+		d.CurrentFile = template.JS("null")
 		if opts.fileMetaJS != "" {
 			d.CurrentFile = template.JS(opts.fileMetaJS)
 		}
-		d.SidebarCSS     = template.CSS(sidebarCSS)
-		d.SidebarJS      = template.JS(sidebarJS)
+		d.SidebarCSS = template.CSS(sidebarCSS)
+		d.SidebarJS = template.JS(sidebarJS)
 	}
 	return d
 }
@@ -566,7 +584,7 @@ func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, fa
 			))
 			scriptParts.WriteString(
 				`<nav id="serve-sidebar">` +
-					`<div id="serve-sidebar-header"><span class="dir-name">` + htmlEscape(sidebar[0]) + `</span></div>` +
+					`<div id="serve-sidebar-header"><button id="serve-sidebar-up" title="Serve the parent directory">&#8593;</button><span class="dir-name">` + htmlEscape(sidebar[0]) + `</span></div>` +
 					`<div id="serve-sidebar-tree"></div>` +
 					`</nav>` +
 					`<button id="serve-sidebar-toggle">&lsaquo;</button>` + "\n",

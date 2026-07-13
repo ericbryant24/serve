@@ -57,7 +57,7 @@
 {{- if .Sidebar}}
 <script>window.__servePath = {{.SidebarPath}}; window.__serveFileTree = {{.FileTree}}; window.__serveFile = {{.CurrentFile}};</script>
 <nav id="serve-sidebar">
-  <div id="serve-sidebar-header"><span class="dir-name">{{.SidebarDirName}}</span></div>
+  <div id="serve-sidebar-header"><button id="serve-sidebar-up" title="Serve the parent directory">&#8593;</button><span class="dir-name">{{.SidebarDirName}}</span></div>
   <div id="serve-sidebar-tree"></div>
 </nav>
 <button id="serve-sidebar-toggle">&lsaquo;</button>

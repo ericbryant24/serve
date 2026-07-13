@@ -4,6 +4,16 @@
   var toggle=document.getElementById('serve-sidebar-toggle');
   var tree=document.getElementById('serve-sidebar-tree');
   var currentPath=window.__servePath||'';
+  // "Go up a directory": ask the server to re-root at the parent, then navigate
+  // to the same file under the new root (its path gains the old root's name).
+  var upBtn=document.getElementById('serve-sidebar-up');
+  if(upBtn)upBtn.addEventListener('click',function(){
+    fetch('/api/reroot',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok)return;
+      if(!currentPath){location.href='/';return;}
+      location.href='/'+encodeURI(d.prefix+'/'+currentPath);
+    }).catch(function(){});
+  });
   function getState(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');}catch(e){return{};}}
   function saveState(s){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(s));}catch(e){}}
   var state=getState();

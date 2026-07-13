@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -158,18 +159,35 @@ func findDefaultFile(root string) string {
 // Server
 // ---------------------------------------------------------------------------
 
+// rootState is the served-directory snapshot. It is swapped atomically so the
+// "go up a directory" action can re-root a running server without locking every
+// request handler: each handler loads one consistent snapshot per request.
+type rootState struct {
+	baseDir     string // absolute, symlink-resolved
+	dirName     string // display name shown in the sidebar header
+	faviconSeed string
+	// openPath is the "home" file rendered at "/", relative to baseDir. It is
+	// set when a single file was served (so "/" shows that file) and empty when
+	// a directory was served (then "/" redirects to a default file). On re-root
+	// it is re-based so it keeps pointing at the originally-served file.
+	openPath string
+}
+
 type Server struct {
-	mode          string
 	host          string
 	port          int
 	openBrowserFn func(url string)
-	filePath      string // single-file mode
-	baseDir       string
-	dirName       string
-	faviconSeed   string
 
-	mu        sync.Mutex
-	wsClients map[*websocket.Conn]bool
+	// root is the current served directory, swapped atomically on "go up".
+	root atomic.Pointer[rootState]
+
+	mu sync.Mutex
+	// wsClients maps each live connection to its write mutex. gorilla/websocket
+	// permits only one concurrent writer per connection and panics
+	// ("concurrent write to websocket connection") otherwise; broadcast runs
+	// from several goroutines at once (file watcher, comment watcher, HTTP
+	// comment handlers), so every write is serialized through the per-conn mutex.
+	wsClients map[*websocket.Conn]*sync.Mutex
 	// commentStores is keyed by storeKey (inode-derived), NOT file path.
 	// Keying by storeKey is what makes the cache correct when an external
 	// editor rewrites a file via the write-temp-then-rename idiom: the path
@@ -178,37 +196,50 @@ type Server struct {
 	// file the rest of the toolchain reads from.
 	commentStores map[string]*CommentStore
 
-	// directory mode file tree cache
-	ignorePatterns []string
-	treeMu         sync.Mutex
-	cachedTree     []FileNode
-	treeDirty      bool
+	// file tree cache. Rebuilt when the tree changes (treeDirty) or the root
+	// changes (treeRoot no longer matches the current baseDir).
+	treeMu     sync.Mutex
+	cachedTree []FileNode
+	treeDirty  bool
+	treeRoot   string
+
+	// watcher lifecycle. The directory watcher is stopped and restarted when
+	// the root changes; watchStop signals the running watcher to exit.
+	watchMu   sync.Mutex
+	watchStop chan struct{}
 }
 
-func NewServer(filePath string, mode, host string, port int) *Server {
+// NewServer roots the server at target's directory. A directory target is used
+// as-is; a file target roots at its parent and renders that file at "/".
+func NewServer(target, host string, port int) *Server {
 	s := &Server{
-		mode:          mode,
 		host:          host,
 		port:          port,
-		wsClients:     map[*websocket.Conn]bool{},
+		wsClients:     map[*websocket.Conn]*sync.Mutex{},
 		commentStores: map[string]*CommentStore{},
 	}
-
-	if mode == "directory" {
-		abs, _ := filepath.Abs(filePath)
-		s.baseDir = abs
-		s.dirName = filepath.Base(abs)
-		if s.dirName == "" || s.dirName == "." {
-			s.dirName = abs
-		}
-		s.faviconSeed = abs
-	} else {
-		abs, _ := filepath.Abs(filePath)
-		s.filePath = abs
-		s.baseDir = filepath.Dir(abs)
-		s.faviconSeed = abs
+	abs, _ := filepath.Abs(target)
+	baseDir, openPath := abs, ""
+	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+		baseDir = filepath.Dir(abs)
+		openPath = filepath.Base(abs)
 	}
+	s.setRoot(baseDir, openPath)
 	return s
+}
+
+// setRoot stores a new served-directory snapshot. baseDir is symlink-resolved so
+// requests (which resolve symlinks before the sandbox check) don't 403 when the
+// root itself sits under a symlink — e.g. macOS /tmp -> /private/tmp.
+func (s *Server) setRoot(baseDir, openPath string) {
+	if resolved, err := filepath.EvalSymlinks(baseDir); err == nil {
+		baseDir = resolved
+	}
+	dirName := filepath.Base(baseDir)
+	if dirName == "" || dirName == "." {
+		dirName = baseDir
+	}
+	s.root.Store(&rootState{baseDir: baseDir, dirName: dirName, faviconSeed: baseDir, openPath: openPath})
 }
 
 // ---------------------------------------------------------------------------
@@ -221,15 +252,27 @@ func (s *Server) broadcast(msg map[string]interface{}) {
 		return
 	}
 	s.mu.Lock()
-	clients := make([]*websocket.Conn, 0, len(s.wsClients))
-	for conn := range s.wsClients {
-		clients = append(clients, conn)
+	type client struct {
+		conn *websocket.Conn
+		wmu  *sync.Mutex
+	}
+	clients := make([]client, 0, len(s.wsClients))
+	for conn, wmu := range s.wsClients {
+		clients = append(clients, client{conn, wmu})
 	}
 	s.mu.Unlock()
 	var failed []*websocket.Conn
-	for _, conn := range clients {
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			failed = append(failed, conn)
+	for _, c := range clients {
+		// Serialize writes per connection (gorilla panics on concurrent writes)
+		// and cap how long a stalled reader can block: without a deadline a
+		// backgrounded or dead-but-unclosed tab would wedge every future
+		// broadcast behind its write mutex.
+		c.wmu.Lock()
+		_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		err := c.conn.WriteMessage(websocket.TextMessage, data)
+		c.wmu.Unlock()
+		if err != nil {
+			failed = append(failed, c.conn)
 		}
 	}
 	if len(failed) > 0 {
@@ -271,23 +314,28 @@ func (s *Server) getStoreForFile(fp string) (*CommentStore, error) {
 }
 
 func (s *Server) getStore(r *http.Request) (*CommentStore, error) {
-	if s.mode == "directory" {
-		fp := s.fileFromRequest(r)
-		if fp == "" {
-			return nil, fmt.Errorf("file parameter missing or invalid")
-		}
-		return s.getStoreForFile(fp)
+	fp := s.fileFromRequest(r)
+	if fp == "" {
+		return nil, fmt.Errorf("file parameter missing or invalid")
 	}
-	return s.getStoreForFile(s.filePath)
+	return s.getStoreForFile(fp)
 }
 
+// fileFromRequest resolves the ?file= query param to an absolute path inside the
+// current root, rejecting traversal and out-of-root symlinks. When ?file= is
+// absent it falls back to the home file (openPath), so serving a single file
+// keeps working without an explicit file param.
 func (s *Server) fileFromRequest(r *http.Request) string {
+	root := s.root.Load()
 	rel := r.URL.Query().Get("file")
+	if rel == "" {
+		rel = root.openPath
+	}
 	if rel == "" {
 		return ""
 	}
-	fp := filepath.Clean(filepath.Join(s.baseDir, rel))
-	relFP, err := filepath.Rel(s.baseDir, fp)
+	fp := filepath.Clean(filepath.Join(root.baseDir, rel))
+	relFP, err := filepath.Rel(root.baseDir, fp)
 	if err != nil || strings.HasPrefix(relFP, "..") {
 		return ""
 	}
@@ -296,7 +344,7 @@ func (s *Server) fileFromRequest(r *http.Request) string {
 	}
 	// Resolve symlinks and verify the real path stays inside baseDir
 	if resolved, err := filepath.EvalSymlinks(fp); err == nil {
-		resolvedRel, relErr := filepath.Rel(s.baseDir, resolved)
+		resolvedRel, relErr := filepath.Rel(root.baseDir, resolved)
 		if relErr != nil || strings.HasPrefix(resolvedRel, "..") {
 			return ""
 		}
@@ -314,7 +362,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	s.wsClients[conn] = true
+	s.wsClients[conn] = &sync.Mutex{}
 	s.mu.Unlock()
 
 	defer func() {
@@ -333,60 +381,18 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP handlers — single-file mode
+// HTTP handlers — page serving
 // ---------------------------------------------------------------------------
 
-func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
-	var htmlStr string
-	var err error
-
-	if s.mode == "markdown" {
-		if isMarpDoc(s.filePath) && r.URL.Query().Get("present") == "1" {
-			htmlStr = renderMarp(s.filePath, nil, nil, s.faviconSeed)
-		} else {
-			marp := isMarpDoc(s.filePath)
-			htmlStr, err = renderMarkdown(s.filePath, wrapOptions{
-				faviconPath: s.faviconSeed,
-				isMarp:      marp,
-			})
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-		}
-	} else {
-		data, rerr := os.ReadFile(s.filePath)
-		if rerr != nil {
-			http.Error(w, rerr.Error(), 500)
-			return
-		}
-		htmlStr = injectReloadScript(string(data), nil, nil, s.faviconSeed, "", true, false)
-	}
-
-	if coms := commentsForPath(s.filePath); len(coms) > 0 {
-		htmlStr = injectCommentAnchors(htmlStr, coms)
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, htmlStr)
-}
-
-func (s *Server) handleDataURL(w http.ResponseWriter, r *http.Request) {
-	url, err := generateDataURL(s.filePath, s.mode)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+// handleDirRoot serves "/". When a single file was served it renders that file
+// (openPath); otherwise it redirects to a sensible default file in the root.
+func (s *Server) handleDirRoot(w http.ResponseWriter, r *http.Request) {
+	root := s.root.Load()
+	if root.openPath != "" {
+		s.renderFile(w, r, root.openPath)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprint(w, url)
-}
-
-// ---------------------------------------------------------------------------
-// HTTP handlers — directory mode
-// ---------------------------------------------------------------------------
-
-func (s *Server) handleDirRoot(w http.ResponseWriter, r *http.Request) {
-	def := findDefaultFile(s.baseDir)
+	def := findDefaultFile(root.baseDir)
 	if def != "" {
 		http.Redirect(w, r, "/"+def, http.StatusFound)
 		return
@@ -425,19 +431,23 @@ func fileMetaJSON(fi os.FileInfo) string {
 }
 
 func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
-	relPath := r.URL.Path
-	if strings.HasPrefix(relPath, "/") {
-		relPath = relPath[1:]
-	}
-	fp := filepath.Clean(filepath.Join(s.baseDir, relPath))
-	relFP, relErr := filepath.Rel(s.baseDir, fp)
+	relPath := strings.TrimPrefix(r.URL.Path, "/")
+	s.renderFile(w, r, relPath)
+}
+
+// renderFile serves relPath (relative to the current root) as an HTML page with
+// the sidebar, dispatching on file type. It enforces the root sandbox.
+func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, relPath string) {
+	root := s.root.Load()
+	fp := filepath.Clean(filepath.Join(root.baseDir, relPath))
+	relFP, relErr := filepath.Rel(root.baseDir, fp)
 	if relErr != nil || strings.HasPrefix(relFP, "..") {
 		http.Error(w, "Forbidden", 403)
 		return
 	}
 	// Resolve symlinks and verify the real path stays inside baseDir
 	if resolved, err := filepath.EvalSymlinks(fp); err == nil {
-		resolvedRel, relErr := filepath.Rel(s.baseDir, resolved)
+		resolvedRel, relErr := filepath.Rel(root.baseDir, resolved)
 		if relErr != nil || strings.HasPrefix(resolvedRel, "..") {
 			http.Error(w, "Forbidden", 403)
 			return
@@ -450,7 +460,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(fp))
-	sidebar := &[2]string{s.dirName, relPath}
+	sidebar := &[2]string{root.dirName, relPath}
 	tree := s.fileTree()
 
 	// Raw access
@@ -467,14 +477,14 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metaJS := fileMetaJSON(fi)
-	opts := wrapOptions{sidebar: sidebar, fileTree: tree, faviconPath: s.faviconSeed, fileMetaJS: metaJS}
+	opts := wrapOptions{sidebar: sidebar, fileTree: tree, faviconPath: root.faviconSeed, fileMetaJS: metaJS}
 
 	switch ext {
 	case ".md":
 		marp := isMarpDoc(fp)
 		var htmlStr string
 		if marp && r.URL.Query().Get("present") == "1" {
-			htmlStr = renderMarp(fp, sidebar, tree, s.faviconSeed)
+			htmlStr = renderMarp(fp, sidebar, tree, root.faviconSeed)
 		} else {
 			opts.isMarp = marp
 			htmlStr, err = renderMarkdown(fp, opts)
@@ -495,7 +505,7 @@ func (s *Server) handleDirFile(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, rerr.Error(), 500)
 			return
 		}
-		htmlStr := injectReloadScript(string(data), sidebar, tree, s.faviconSeed, metaJS, true, false)
+		htmlStr := injectReloadScript(string(data), sidebar, tree, root.faviconSeed, metaJS, true, false)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, htmlStr)
 
@@ -539,11 +549,9 @@ func (s *Server) handleFileTree(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
-	if s.mode == "directory" {
-		if s.fileFromRequest(r) == "" {
-			writeJSON(w, map[string]interface{}{"comments": []interface{}{}})
-			return
-		}
+	if s.fileFromRequest(r) == "" {
+		writeJSON(w, map[string]interface{}{"comments": []interface{}{}})
+		return
 	}
 	store, err := s.getStore(r)
 	if err != nil {
@@ -562,8 +570,8 @@ func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
-	if s.mode == "directory" && r.URL.Query().Get("file") == "" {
-		http.Error(w, "file parameter is required in directory mode", 400)
+	if s.fileFromRequest(r) == "" {
+		http.Error(w, "file parameter is required", 400)
 		return
 	}
 	var body struct {
@@ -598,8 +606,8 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
-	if s.mode == "directory" && r.URL.Query().Get("file") == "" {
-		http.Error(w, "file parameter is required in directory mode", 400)
+	if s.fileFromRequest(r) == "" {
+		http.Error(w, "file parameter is required", 400)
 		return
 	}
 	id := r.PathValue("id")
@@ -634,8 +642,8 @@ func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
-	if s.mode == "directory" && r.URL.Query().Get("file") == "" {
-		http.Error(w, "file parameter is required in directory mode", 400)
+	if s.fileFromRequest(r) == "" {
+		http.Error(w, "file parameter is required", 400)
 		return
 	}
 	id := r.PathValue("id")
@@ -661,14 +669,10 @@ func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 // HTTP handlers — edit API
 // ---------------------------------------------------------------------------
 
-// resolveTarget returns the absolute file path for an edit/file/preview request.
-// In directory mode the path comes from the ?file= query param; in single-file
-// mode it is always s.filePath.
+// resolveTarget returns the absolute file path for an edit/file/preview request,
+// taken from the ?file= query param (falling back to the home file).
 func (s *Server) resolveTarget(r *http.Request) string {
-	if s.mode == "directory" {
-		return s.fileFromRequest(r)
-	}
-	return s.filePath
+	return s.fileFromRequest(r)
 }
 
 func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
@@ -749,15 +753,12 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	s.port = port
 
-	if s.mode == "directory" {
-		si := filepath.Join(s.baseDir, ".serveignore")
-		if _, err := os.Stat(si); os.IsNotExist(err) {
-			if err := os.WriteFile(si, []byte(defaultServeIgnore), 0644); err == nil {
-				fmt.Println("Created .serveignore")
-			}
+	root := s.root.Load()
+	si := filepath.Join(root.baseDir, ".serveignore")
+	if _, err := os.Stat(si); os.IsNotExist(err) {
+		if err := os.WriteFile(si, []byte(defaultServeIgnore), 0644); err == nil {
+			fmt.Println("Created .serveignore")
 		}
-		s.ignorePatterns = loadServeIgnore(s.baseDir)
-		s.cachedTree = buildFileTree(s.baseDir, "", s.ignorePatterns)
 	}
 
 	mux := http.NewServeMux()
@@ -783,6 +784,13 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	})
 	mux.HandleFunc("/api/files", s.handleFileTree)
+	mux.HandleFunc("/api/reroot", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleReroot(w, r)
+		} else {
+			http.Error(w, "method not allowed", 405)
+		}
+	})
 	mux.HandleFunc("/api/file", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			s.handleGetFile(w, r)
@@ -805,21 +813,13 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	})
 
-	if s.mode == "directory" {
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/" {
-				s.handleDirRoot(w, r)
-				return
-			}
-			s.handleDirFile(w, r)
-		})
-	} else {
-		mux.HandleFunc("/__data_url", s.handleDataURL)
-		mux.Handle("/", &staticOrPageHandler{
-			s:          s,
-			fileServer: http.FileServer(http.Dir(s.baseDir)),
-		})
-	}
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			s.handleDirRoot(w, r)
+			return
+		}
+		s.handleDirFile(w, r)
+	})
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", s.host, port),
@@ -827,11 +827,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	url := fmt.Sprintf("http://%s:%d", s.host, port)
-	if s.mode == "directory" {
-		fmt.Printf("Serving %s at %s\n", s.baseDir, url)
-	} else {
-		fmt.Printf("Serving %s at %s\n", filepath.Base(s.filePath), url)
-	}
+	fmt.Printf("Serving %s at %s\n", root.baseDir, url)
 	fmt.Println("Press Ctrl+C to stop")
 
 	if s.openBrowserFn != nil {
@@ -839,24 +835,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Start watchers
-	go func() {
-		var err error
-		if s.mode == "directory" {
-			err = watchDirectory(s.baseDir, func() {
-				s.treeMu.Lock()
-				s.ignorePatterns = loadServeIgnore(s.baseDir)
-				s.treeDirty = true
-				s.treeMu.Unlock()
-				s.notifyReload()
-				s.notifyFileTree(s.fileTree())
-			})
-		} else {
-			err = watch(s.filePath, s.notifyReload, s.mode == "markdown")
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "watcher: %v\n", err)
-		}
-	}()
+	s.rewatch()
 	go func() {
 		if err := watchComments(s.notifyCommentsUpdated); err != nil {
 			fmt.Fprintf(os.Stderr, "comment watcher: %v\n", err)
@@ -875,6 +854,60 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Directory watcher lifecycle (restartable so "go up" can re-root)
+// ---------------------------------------------------------------------------
+
+// rewatch stops any running directory watcher and starts a fresh one on the
+// current root. Called once at startup and again after each re-root.
+func (s *Server) rewatch() {
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	if s.watchStop != nil {
+		close(s.watchStop)
+	}
+	stop := make(chan struct{})
+	s.watchStop = stop
+	baseDir := s.root.Load().baseDir
+	go func() {
+		err := watchDirectory(baseDir, stop, func() {
+			s.treeMu.Lock()
+			s.treeDirty = true
+			s.treeMu.Unlock()
+			s.notifyReload()
+			s.notifyFileTree(s.fileTree())
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "watcher: %v\n", err)
+		}
+	}()
+}
+
+// handleReroot re-roots the server one directory up and reports the old root's
+// base name so the client can rewrite its URL to keep viewing the same file.
+// serve binds to localhost, so this only widens what the local server exposes.
+func (s *Server) handleReroot(w http.ResponseWriter, r *http.Request) {
+	cur := s.root.Load()
+	parent := filepath.Dir(cur.baseDir)
+	if parent == cur.baseDir { // already at the filesystem root
+		writeJSON(w, map[string]interface{}{"ok": false, "atRoot": true})
+		return
+	}
+	prefix := filepath.Base(cur.baseDir)
+	// Re-base the home file so "/" keeps pointing at the originally-served file.
+	openPath := cur.openPath
+	if openPath != "" {
+		openPath = prefix + "/" + openPath
+	}
+	s.setRoot(parent, openPath)
+	s.treeMu.Lock()
+	s.treeDirty = true
+	s.treeMu.Unlock()
+	s.rewatch()
+	newRoot := s.root.Load()
+	writeJSON(w, map[string]interface{}{"ok": true, "prefix": prefix, "dirName": newRoot.dirName})
 }
 
 // ---------------------------------------------------------------------------
@@ -1013,33 +1046,15 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 // ---------------------------------------------------------------------------
 
 func (s *Server) fileTree() []FileNode {
+	baseDir := s.root.Load().baseDir
 	s.treeMu.Lock()
 	defer s.treeMu.Unlock()
-	if s.treeDirty {
-		s.cachedTree = buildFileTree(s.baseDir, "", s.ignorePatterns)
+	// Rebuild when the tree changed (treeDirty) or the root moved (treeRoot).
+	// .serveignore is reloaded on every rebuild so live edits to it take effect.
+	if s.treeDirty || s.treeRoot != baseDir {
+		s.cachedTree = buildFileTree(baseDir, "", loadServeIgnore(baseDir))
 		s.treeDirty = false
+		s.treeRoot = baseDir
 	}
 	return s.cachedTree
 }
-
-// ---------------------------------------------------------------------------
-// Static file handler for single-file mode (serve assets from base dir)
-// ---------------------------------------------------------------------------
-
-type staticOrPageHandler struct {
-	s           *Server
-	fileServer  http.Handler
-}
-
-func (h *staticOrPageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/" {
-		h.s.handlePage(w, r)
-		return
-	}
-	if r.URL.Path == "/__data_url" {
-		h.s.handleDataURL(w, r)
-		return
-	}
-	h.fileServer.ServeHTTP(w, r)
-}
-

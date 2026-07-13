@@ -6,13 +6,13 @@ Markdown/HTML document server with live reload and inline comments.
 
 ```
 main.go           — CLI entry point, subcommand dispatch (comments, resolve, watch, list, kill, agent-init)
-server.go         — net/http server: page, WebSocket, static files, comment API
+server.go         — net/http server: directory rooting (atomic rootState, re-root), page rendering, WebSocket, comment API
 renderer.go       — goldmark rendering with source line annotations, Chroma syntax highlighting
 templates.go      — html/template page builder (wrapMarkdown, wrapCode, etc.) + inject helpers
 static/page.gohtml — HTML page skeleton (embedded via go:embed)
 static/*.css/js   — Comment UI, vim mode, zoom, sidebar, presentation assets (embedded)
 comments.go       — Comment model, inode-based store key, JSON persistence (wrapped {path, comments} on disk)
-watcher.go        — fsnotify file watcher with trailing-edge debounce (50ms)
+watcher.go        — fsnotify directory watcher (restartable on re-root), trailing-edge debounce (50ms)
 watch.go          — `serve watch` subcommand: JSONL event stream over the comment store
 instances.go      — Process discovery via ps/lsof (no registry)
 marp.go           — Marp slide deck support
@@ -29,7 +29,7 @@ watch_test.go     — Unit tests for serve watch diff logic
 - **Store key**: `storeKeyForFile(path)` in `comments.go` — returns `"%x-%x" % (dev, ino)` on Unix via `fi.Sys().(*syscall.Stat_t)`, or `md5(abs_path)[:4]` as fallback.
 - **Source line annotations**: The renderer adds `data-source-lines` attributes to block elements so the browser JS can map text selections back to source line numbers.
 - **Frontmatter stripping**: `renderer.go` strips YAML frontmatter before parsing, replacing with blank lines to preserve line numbering.
-- **Directory mode**: When given a directory, the server uses a catch-all route to render files by type (markdown, HTML, code, PDF, plain text) and injects a sidebar for navigation. The sidebar state (expand/collapse, visibility) is persisted in localStorage. Comments work per-file via a `?file=` query param on the API.
+- **Rooting**: The server always serves a directory. A directory target is used as-is; a file target roots at its parent and renders that file at `/` (its `openPath`). The root is held in an atomic `rootState` (baseDir, dirName, faviconSeed, openPath) so it can be swapped at runtime without locking every handler. The sidebar's "up" control (`POST /api/reroot`) re-roots one level up, re-bases `openPath`, and restarts the directory watcher. baseDir is symlink-resolved so serving under `/tmp` or `/var` (macOS symlinks) doesn't trip the sandbox check. A catch-all route renders files by type (markdown, HTML, code, PDF, plain text) with a sidebar; state (expand/collapse, visibility, width) persists in localStorage. Comments work per-file via a `?file=` query param, falling back to `openPath` when absent.
 - **Watcher debounce**: Trailing-edge 50ms — coalesces rapid bursts (e.g. Claude Code editing multiple files) into a single reload. Ignores `node_modules`, `__pycache__`, `dist`, `build`, `vendor`, `target`.
 
 ## Comment API
@@ -49,7 +49,7 @@ CLI (no server needed):
 ## Commands
 
 ```bash
-serve file.md             # serve a single file
+serve file.md             # serve file.md's directory, opened at file.md
 serve .                   # serve a directory (sidebar + all file types)
 serve comments file.md    # list comments
 serve reply file.md <id> "looks good"  # reply to a comment

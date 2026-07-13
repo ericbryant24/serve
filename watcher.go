@@ -10,59 +10,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// watch watches a single file (and related assets in markdown mode) for
-// changes, calling onChange whenever a relevant change is detected.
-func watch(filePath string, onChange func(), markdownMode bool) error {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return err
-	}
-	defer watcher.Close()
-
-	dir := filepath.Dir(filePath)
-	absTarget, _ := filepath.Abs(filePath)
-
-	if err := watcher.Add(dir); err != nil {
-		return err
-	}
-
-	assetExts := map[string]bool{
-		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
-		".svg": true, ".webp": true, ".css": true, ".js": true,
-	}
-
-	debounce := newDebouncer(50*time.Millisecond, onChange)
-	defer debounce.Stop()
-
-	for {
-		select {
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return nil
-			}
-			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
-				continue
-			}
-			absPath, _ := filepath.Abs(event.Name)
-			if absPath == absTarget {
-				debounce.Trigger()
-				continue
-			}
-			if markdownMode {
-				ext := strings.ToLower(filepath.Ext(event.Name))
-				if assetExts[ext] {
-					debounce.Trigger()
-				}
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return nil
-			}
-			fmt.Fprintf(os.Stderr, "watcher error: %v\n", err)
-		}
-	}
-}
-
 // noisyDirs are directory names that generate high-frequency writes not worth
 // watching — build artifacts, package caches, compiled bytecode.
 var noisyDirs = map[string]bool{
@@ -101,8 +48,9 @@ func isIgnoredPath(path, root string) bool {
 }
 
 // watchDirectory watches an entire directory tree for changes, calling
-// onChange whenever any non-hidden, non-noisy file changes.
-func watchDirectory(dir string, onChange func()) error {
+// onChange whenever any non-hidden, non-noisy file changes. It returns when
+// stop is closed, so the server can restart it on a different root ("go up").
+func watchDirectory(dir string, stop <-chan struct{}, onChange func()) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -131,6 +79,8 @@ func watchDirectory(dir string, onChange func()) error {
 
 	for {
 		select {
+		case <-stop:
+			return nil
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return nil

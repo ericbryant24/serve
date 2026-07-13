@@ -24,7 +24,7 @@ func TestIsEditableFile(t *testing.T) {
 		{"doc.markdown", true},
 		{"notes.txt", true},
 		{"notes.text", true},
-		{"README.MD", true},   // case-insensitive
+		{"README.MD", true}, // case-insensitive
 		{"server.go", false},
 		{"index.html", false},
 		{"style.css", false},
@@ -79,31 +79,38 @@ func TestRenderMarkdownSource_StripsFrontmatter(t *testing.T) {
 // helpers
 // ---------------------------------------------------------------------------
 
+// newMarkdownServer serves a single markdown file: the server roots at its
+// directory with the file as the home file (openPath), so fileless edit/preview
+// requests resolve to it.
 func newMarkdownServer(t *testing.T, content string) (*Server, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	fp := filepath.Join(dir, "test.md")
 	if err := os.WriteFile(fp, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{mode: "markdown", filePath: fp, baseDir: dir}
-	return s, fp
+	return NewServer(fp, "localhost", 0), fp
 }
 
 func newDirServer(t *testing.T) (*Server, string) {
 	t.Helper()
-	dir := t.TempDir()
-	// Resolve symlinks (macOS /var → /private/var) so fileFromRequest passes.
-	realDir, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		realDir = dir
-	}
-	fp := filepath.Join(realDir, "doc.md")
+	dir := realTempDir(t)
+	fp := filepath.Join(dir, "doc.md")
 	if err := os.WriteFile(fp, []byte("# Hello"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{mode: "directory", baseDir: realDir}
-	return s, fp
+	return NewServer(dir, "localhost", 0), fp
+}
+
+// realTempDir returns a symlink-resolved temp dir (macOS /var → /private/var) so
+// paths match the server's symlink-resolved root.
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		return real
+	}
+	return dir
 }
 
 // ---------------------------------------------------------------------------
@@ -130,10 +137,10 @@ func TestHandleGetFile_SingleMode(t *testing.T) {
 }
 
 func TestHandleGetFile_NonEditable(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	fp := filepath.Join(dir, "server.go")
 	os.WriteFile(fp, []byte("package main"), 0644)
-	s := &Server{mode: "markdown", filePath: fp, baseDir: dir}
+	s := NewServer(fp, "localhost", 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/file", nil)
 	w := httptest.NewRecorder()
@@ -146,7 +153,7 @@ func TestHandleGetFile_NonEditable(t *testing.T) {
 
 func TestHandleGetFile_DirMode(t *testing.T) {
 	s, fp := newDirServer(t)
-	rel, _ := filepath.Rel(s.baseDir, fp)
+	rel, _ := filepath.Rel(s.root.Load().baseDir, fp)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/file?file="+rel, nil)
 	w := httptest.NewRecorder()
@@ -203,10 +210,10 @@ func TestHandleEditFile_SingleMode(t *testing.T) {
 }
 
 func TestHandleEditFile_NonEditable(t *testing.T) {
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	fp := filepath.Join(dir, "main.go")
 	os.WriteFile(fp, []byte("package main"), 0644)
-	s := &Server{mode: "markdown", filePath: fp, baseDir: dir}
+	s := NewServer(fp, "localhost", 0)
 
 	body, _ := json.Marshal(map[string]string{"content": "malicious"})
 	req := httptest.NewRequest(http.MethodPost, "/api/edit", bytes.NewReader(body))
@@ -239,7 +246,7 @@ func TestHandleEditFile_BadJSON(t *testing.T) {
 
 func TestHandleEditFile_DirMode(t *testing.T) {
 	s, fp := newDirServer(t)
-	rel, _ := filepath.Rel(s.baseDir, fp)
+	rel, _ := filepath.Rel(s.root.Load().baseDir, fp)
 
 	body, _ := json.Marshal(map[string]string{"content": "# New content\n"})
 	req := httptest.NewRequest(http.MethodPost, "/api/edit?file="+rel, bytes.NewReader(body))
@@ -330,8 +337,8 @@ func TestHandlePreview_EmptyContent(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEditButtonPresentForMarkdown(t *testing.T) {
-	s, _ := newMarkdownServer(t, "# Hello\n")
-	html, err := renderMarkdown(s.filePath, wrapOptions{faviconPath: s.filePath})
+	_, fp := newMarkdownServer(t, "# Hello\n")
+	html, err := renderMarkdown(fp, wrapOptions{faviconPath: fp})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +402,7 @@ func TestResolveTarget_SingleMode(t *testing.T) {
 
 func TestResolveTarget_DirMode(t *testing.T) {
 	s, fp := newDirServer(t)
-	rel, _ := filepath.Rel(s.baseDir, fp)
+	rel, _ := filepath.Rel(s.root.Load().baseDir, fp)
 	req := httptest.NewRequest(http.MethodGet, "/api/file?file="+rel, nil)
 	got := s.resolveTarget(req)
 	if got != fp {
