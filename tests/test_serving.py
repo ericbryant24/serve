@@ -195,3 +195,22 @@ class TestDirectoryModeServing:
         # sidebar is injected as a nav/aside or script that builds the tree
         body = r.text.lower()
         assert "sidebar" in body or "serve-sidebar" in body or "api/files" in body
+
+
+class TestRawDownload:
+    """The sidebar drag-out points at ?raw=1&dl=1, which must force a download
+    (Chromium only materializes a DownloadURL drag when the fetched resource is
+    an attachment). Plain ?raw=1 must stay inline so embedded <img>/<embed> work.
+    """
+
+    def test_raw_dl_forces_attachment(self, dir_server: ServeServer):
+        r = dir_server.get("/README.md?raw=1&dl=1")
+        assert r.status_code == 200
+        cd = r.headers.get("content-disposition", "")
+        assert "attachment" in cd.lower()
+        assert "README.md" in cd
+
+    def test_raw_without_dl_stays_inline(self, dir_server: ServeServer):
+        r = dir_server.get("/README.md?raw=1")
+        assert r.status_code == 200
+        assert "attachment" not in r.headers.get("content-disposition", "").lower()

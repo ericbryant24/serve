@@ -83,7 +83,7 @@
         html+='</div>';
       } else {
         var isActive=item.path===currentPath;
-        html+='<a class="sidebar-file'+(isActive?' active':'')+'" href="/'+encodeURI(item.path)+'" style="'+pad+'"><span class="sidebar-icon">'+fileIcon(item.name)+'</span>'+esc(item.name)+'</a>';
+        html+='<a class="sidebar-file'+(isActive?' active':'')+'" draggable="true" href="/'+encodeURI(item.path)+'" style="'+pad+'"><span class="sidebar-icon">'+fileIcon(item.name)+'</span>'+esc(item.name)+'</a>';
       }
     });
     return html;
@@ -105,6 +105,7 @@
     var href=a.getAttribute('href')||'';
     var url;try{url=new URL(href,location.href);}catch(err){return;}
     url.searchParams.set('raw','1');
+    url.searchParams.set('dl','1'); // force a download so Chromium writes a real file on drop
     var abs=url.toString();
     var parts=decodeURIComponent(href.replace(/^\//,'')).split('/');
     var filename=parts[parts.length-1]||'file';

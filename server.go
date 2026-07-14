@@ -463,8 +463,13 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, relPath stri
 	sidebar := &[2]string{root.dirName, relPath}
 	tree := s.fileTree()
 
-	// Raw access
+	// Raw access. ?dl=1 forces a download (Content-Disposition: attachment) so
+	// the sidebar's drag-out reliably materializes a real file in Chromium;
+	// plain ?raw=1 (used by inline <img>/<embed>) must NOT force a download.
 	if r.URL.Query().Get("raw") == "1" {
+		if r.URL.Query().Get("dl") == "1" {
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(fp)))
+		}
 		http.ServeFile(w, r, fp)
 		return
 	}
