@@ -135,7 +135,7 @@ func missingMarpPage(filePath string, sidebar *[2]string, fileTree []FileNode, f
 		`<p>or install Node so the <code>npx</code> fallback works.</p>` +
 		`<p>The page will reload automatically once the file is saved.</p>` +
 		`</body></html>`
-	return injectReloadScript(body, sidebar, fileTree, faviconPath, "", false, true)
+	return injectReloadScript(body, sidebar, fileTree, faviconPath, "", "", false, true)
 }
 
 func marpErrorPage(filePath, stderr string, sidebar *[2]string, fileTree []FileNode, faviconPath string) string {
@@ -154,7 +154,7 @@ func marpErrorPage(filePath, stderr string, sidebar *[2]string, fileTree []FileN
 		`<pre>` + html.EscapeString(stderr) + `</pre>` +
 		`<p>Fix the slide source and save — the page will reload.</p>` +
 		`</body></html>`
-	return injectReloadScript(body, sidebar, fileTree, faviconPath, "", false, true)
+	return injectReloadScript(body, sidebar, fileTree, faviconPath, "", "", false, true)
 }
 
 func renderMarp(filePath string, sidebar *[2]string, fileTree []FileNode, faviconPath string) string {
@@ -185,5 +185,5 @@ func renderMarp(filePath string, sidebar *[2]string, fileTree []FileNode, favico
 		ranges = slideLineRanges(string(data))
 	}
 	htmlStr := injectSectionSourceLines(string(out), ranges)
-	return injectReloadScript(htmlStr, sidebar, fileTree, faviconPath, "", false, true)
+	return injectReloadScript(htmlStr, sidebar, fileTree, faviconPath, "", "", false, true)
 }

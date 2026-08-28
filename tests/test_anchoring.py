@@ -275,6 +275,81 @@ class TestTableCellAnchoring:
 # Orphaned comments — silent failure detection
 # ---------------------------------------------------------------------------
 
+class TestCrossCellComments:
+    """A comment spanning two columns must not restructure the table.
+
+    Goldmark emits a newline between </td> and <td>, so that whitespace is a
+    text node parented by the <tr>. Wrapping it in a <mark> puts phrasing
+    content directly inside the row, and the browser answers by rendering an
+    anonymous extra cell: the row gains a column and the real content shifts
+    into it.
+    """
+
+    SELECT_ACROSS_CELLS = """() => {
+        const tds = Array.from(document.querySelectorAll('td'));
+        const a = tds.find(t => t.textContent.trim() === 'alpha');
+        const b = tds.find(t => t.textContent.trim() === 'beta');
+        const r = document.createRange();
+        r.setStart(a.firstChild, 0);
+        r.setEnd(b.firstChild, b.firstChild.length);
+        const s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+    }"""
+
+    def _comment_across_two_cells(self, page: Page):
+        page.evaluate(self.SELECT_ACROSS_CELLS)
+        page.wait_for_timeout(300)
+        page.click("#comment-btn")
+        page.wait_for_selector(".comment-form textarea", timeout=4000)
+        page.fill(".comment-form textarea", "spans two cells")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_selector("mark.comment-highlight", timeout=4000)
+        page.wait_for_timeout(400)
+
+    def _cells_per_row(self, page: Page) -> list:
+        return page.evaluate(
+            "() => Array.from(document.querySelectorAll('table tr')).map(r => r.children.length)"
+        )
+
+    def test_row_keeps_its_cell_count(self, anchor_page: Page):
+        before = self._cells_per_row(anchor_page)
+        self._comment_across_two_cells(anchor_page)
+        assert self._cells_per_row(anchor_page) == before, (
+            "commenting across two columns changed the table's shape"
+        )
+
+    def test_no_mark_is_a_direct_child_of_a_row(self, anchor_page: Page):
+        self._comment_across_two_cells(anchor_page)
+        stray = anchor_page.evaluate(
+            "() => document.querySelectorAll('tr > mark, tbody > mark, thead > mark, table > mark').length"
+        )
+        assert stray == 0, "a <mark> was placed where only cells are allowed"
+
+    def test_both_cells_are_highlighted(self, anchor_page: Page):
+        self._comment_across_two_cells(anchor_page)
+        texts = anchor_page.evaluate(
+            "() => Array.from(document.querySelectorAll('mark.comment-highlight'))"
+            ".map(m => m.textContent.trim())"
+        )
+        assert "alpha" in texts and "beta" in texts, (
+            f"both cells should carry the highlight, got {texts}"
+        )
+        in_cells = anchor_page.evaluate(
+            "() => Array.from(document.querySelectorAll('mark.comment-highlight'))"
+            ".every(m => m.closest('td, th') !== null)"
+        )
+        assert in_cells, "every highlight must sit inside a cell"
+
+    def test_survives_a_reload(self, anchor_page: Page, anchoring_server: ServeServer):
+        before = self._cells_per_row(anchor_page)
+        self._comment_across_two_cells(anchor_page)
+        reload(anchor_page, anchoring_server)
+        anchor_page.wait_for_selector("mark.comment-highlight", timeout=4000)
+        assert self._cells_per_row(anchor_page) == before
+
+
 class TestOrphanedComments:
 
     def test_nonexistent_anchor_creates_no_mark(

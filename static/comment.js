@@ -11,6 +11,19 @@
     return fetch('/api/comments' + (path || '') + suffix, opts).then(function(r) { return r.json(); });
   }
   function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  // A <mark> is phrasing content, so it cannot be a direct child of a table
+  // row or a list. Goldmark puts a newline between </td> and <td>, and that
+  // whitespace is a text node parented by the <tr>: wrapping it drops a <mark>
+  // straight into the row, and the browser then renders an anonymous extra
+  // cell — a comment spanning two columns left the row one cell wider with
+  // blanks in it. These nodes still count toward the anchor match; they just
+  // never get wrapped.
+  var NO_MARK_PARENTS = { TABLE: 1, THEAD: 1, TBODY: 1, TFOOT: 1, TR: 1, COLGROUP: 1,
+                          UL: 1, OL: 1, DL: 1, MENU: 1, SELECT: 1, OPTGROUP: 1, PICTURE: 1 };
+  function canHoldMark(node) {
+    var p = node.parentElement;
+    return !p || !NO_MARK_PARENTS[p.tagName];
+  }
   function timeAgo(iso) {
     var diff = (Date.now() - new Date(iso).getTime()) / 1000;
     if (diff < 60) return 'just now';
@@ -190,7 +203,7 @@
         if (lastCell !== undefined && cell !== lastCell) fullText += '\x00';
         lastCell = cell;
       }
-      textNodes.push({ node: n, start: fullText.length }); fullText += n.textContent;
+      textNodes.push({ node: n, start: fullText.length, wrap: canHoldMark(n) }); fullText += n.textContent;
     }
     var idx = fullText.indexOf(anchorText);
     if (idx === -1) {
@@ -235,7 +248,7 @@
       while (walker.nextNode()) {
         var nb = walker.currentNode;
         if (nb.parentElement.closest('mark.comment-highlight, .comment-popover, .comment-form, .orphaned-comments, script, style')) continue;
-        textNodes.push({ node: nb, start: fullText.length }); fullText += nb.textContent;
+        textNodes.push({ node: nb, start: fullText.length, wrap: canHoldMark(nb) }); fullText += nb.textContent;
       }
       idx = fullText.indexOf(anchorText);
       if (idx === -1) {
@@ -258,6 +271,7 @@
       if (nodeEnd <= pos) continue;
       var offsetInNode = Math.max(0, pos - tn.start);
       var charsInNode = Math.min(tn.node.textContent.length - offsetInNode, remaining);
+      if (!tn.wrap) { remaining -= charsInNode; pos += charsInNode; continue; }
       var range = document.createRange();
       range.setStart(tn.node, offsetInNode); range.setEnd(tn.node, offsetInNode + charsInNode);
       var mark = document.createElement('mark');
@@ -271,7 +285,7 @@
         while (walker.nextNode()) {
           var nn = walker.currentNode;
           if (nn.parentElement.closest('mark.comment-highlight, .comment-popover, .comment-form, .orphaned-comments, script, style')) continue;
-          textNodes.push({ node: nn, start: fullText.length }); fullText += nn.textContent;
+          textNodes.push({ node: nn, start: fullText.length, wrap: canHoldMark(nn) }); fullText += nn.textContent;
         }
         idx = fullText.indexOf(anchorText.substring(anchorText.length - remaining));
         if (idx === -1) break; pos = idx;
@@ -355,6 +369,28 @@
       });
     });
   }
+  // ---- Hide / show comments ----
+  // A toggle in the comment panel header clears the inline highlights and the
+  // unanchored-comments list for a distraction-free read. State persists in
+  // localStorage, so it survives soft reloads and full page reloads.
+  var COMMENTS_HIDDEN_KEY = 'serve-comments-hidden';
+  var EYE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  function commentsHidden() { try { return localStorage.getItem(COMMENTS_HIDDEN_KEY) === '1'; } catch (e) { return false; } }
+  function applyCommentsHidden() {
+    var hidden = commentsHidden();
+    document.body.classList.toggle('serve-comments-hidden', hidden);
+    var t = document.getElementById('comment-hide-toggle');
+    if (t) {
+      t.innerHTML = (hidden ? EYE_OFF_ICON : EYE_ICON) + '<span>' + (hidden ? 'Show' : 'Hide') + '</span>';
+      t.title = hidden ? 'Show comment highlights in the document' : 'Hide comment highlights in the document';
+      t.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+    }
+  }
+  function toggleCommentsHidden() {
+    try { localStorage.setItem(COMMENTS_HIDDEN_KEY, commentsHidden() ? '0' : '1'); } catch (e) {}
+    applyCommentsHidden();
+  }
   function updateBadge() {
     var badge = document.getElementById('comment-badge');
     var roots = comments.filter(function(c) { return !c.parent_id; });
@@ -368,6 +404,17 @@
     var badge = document.getElementById('comment-badge'); var panel = document.getElementById('comment-panel'); var closeBtn = document.getElementById('panel-close');
     badge.addEventListener('click', function() { renderPanel(); panel.classList.toggle('open'); });
     closeBtn.addEventListener('click', function() { panel.classList.remove('open'); });
+    // Add the hide/show toggle to the panel header (once).
+    var header = panel.querySelector('.comment-panel-header');
+    if (header && !document.getElementById('comment-hide-toggle')) {
+      var t = document.createElement('button');
+      t.id = 'comment-hide-toggle';
+      t.type = 'button';
+      t.className = 'comment-panel-toggle';
+      t.addEventListener('click', toggleCommentsHidden);
+      header.insertBefore(t, closeBtn);
+    }
+    applyCommentsHidden();
   }
   function renderPanel() {
     var body = document.getElementById('panel-body');

@@ -199,3 +199,113 @@ class TestCommentWorkflow:
         md_page.keyboard.press("Control+Enter")
         # Badge should become visible with a count
         expect(badge).to_be_visible(timeout=4000)
+
+
+class TestHideShowComments:
+
+    def test_toggle_hides_and_shows_highlights(self, md_page: Page):
+        # Create a comment so a highlight appears.
+        select_text_in_first_paragraph(md_page)
+        md_page.click("#comment-btn")
+        ta = md_page.locator(".comment-form textarea")
+        expect(ta).to_be_visible(timeout=2000)
+        ta.fill("hide/show test")
+        md_page.keyboard.press("Control+Enter")
+        expect(md_page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
+
+        # The hide/show toggle lives in the comment panel header.
+        md_page.click("#comment-badge")
+        toggle = md_page.locator("#comment-hide-toggle")
+        expect(toggle).to_be_visible(timeout=2000)
+
+        # Hide: the mark stays in the DOM but its highlight background is cleared.
+        toggle.click()
+        md_page.wait_for_timeout(100)
+        assert md_page.evaluate(
+            "() => document.body.classList.contains('serve-comments-hidden')"
+        ) is True
+        # pointer-events (no CSS transition, unlike background) is the reliable
+        # signal that the hidden styling took effect.
+        pe = md_page.evaluate(
+            "() => getComputedStyle(document.querySelector('mark.comment-highlight')).pointerEvents"
+        )
+        assert pe == "none", f"highlight not cleared (pointer-events={pe!r})"
+
+        # Show again.
+        toggle.click()
+        md_page.wait_for_timeout(100)
+        assert md_page.evaluate(
+            "() => document.body.classList.contains('serve-comments-hidden')"
+        ) is False
+
+    def test_hidden_state_persists_across_reload(self, page: Page, md_server: ServeServer):
+        make_comment(md_server, anchor_text="simple markdown document", text="persist")
+        page.goto(f"{md_server.base_url}/")
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
+
+        page.click("#comment-badge")
+        page.click("#comment-hide-toggle")
+        page.wait_for_timeout(100)
+        assert page.evaluate(
+            "() => document.body.classList.contains('serve-comments-hidden')"
+        ) is True
+
+        # Reload: the hidden state (localStorage) is applied on load without
+        # reopening the panel.
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
+        assert page.evaluate(
+            "() => document.body.classList.contains('serve-comments-hidden')"
+        ) is True
+
+
+class TestFileActions:
+
+    def test_base_dir_exposed(self, dir_page: Page):
+        base = dir_page.evaluate("() => window.__serveBaseDir")
+        assert isinstance(base, str) and base.startswith("/"), base
+
+    def test_drag_carries_local_path_not_localhost(self, dir_page: Page):
+        result = dir_page.evaluate(
+            """() => {
+              const a = document.querySelector('.sidebar-file');
+              const dt = new DataTransfer();
+              a.dispatchEvent(new DragEvent('dragstart', {dataTransfer: dt, bubbles: true, cancelable: true}));
+              return {plain: dt.getData('text/plain'), uri: dt.getData('text/uri-list'), dl: dt.getData('DownloadURL')};
+            }"""
+        )
+        # text/plain must be the local filesystem path, not a localhost URL.
+        assert result["plain"].startswith("/"), result
+        assert "localhost" not in result["plain"], result
+        assert result["uri"].startswith("file://"), result
+        # DownloadURL still points at the raw localhost URL so Finder/desktop
+        # drops materialize a real file.
+        assert "localhost" in result["dl"] and "dl=1" in result["dl"], result
+
+    def test_context_menu_reveal_calls_api(self, dir_page: Page):
+        # Intercept so a real Finder window never opens during the test.
+        dir_page.route(
+            "**/api/reveal**",
+            lambda route: route.fulfill(
+                status=200, content_type="application/json", body='{"ok":true}'
+            ),
+        )
+        dir_page.locator(".sidebar-file.active").click(button="right")
+        menu = dir_page.locator(".serve-context-menu")
+        expect(menu).to_be_visible(timeout=2000)
+        expect(menu).to_contain_text("Copy path")
+        with dir_page.expect_request("**/api/reveal**") as ri:
+            menu.get_by_text("Reveal in Finder").click()
+        assert "path=" in ri.value.url
+
+    def test_context_menu_copy_path(self, dir_page: Page):
+        dir_page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+        dir_page.locator(".sidebar-file.active").click(button="right")
+        menu = dir_page.locator(".serve-context-menu")
+        expect(menu).to_be_visible(timeout=2000)
+        menu.get_by_text("Copy path").click()
+        expect(dir_page.locator(".serve-toast")).to_be_visible(timeout=2000)
+        copied = dir_page.evaluate("() => navigator.clipboard.readText()")
+        assert copied.startswith("/") and "localhost" not in copied, copied

@@ -96,8 +96,17 @@
     dir.classList.toggle('open');children.classList.toggle('collapsed');
     var s=getState();s[key]=dir.classList.contains('open');saveState(s);
   });
-  // Drag a sidebar file out of the browser to materialize a real file
-  // in Finder/Explorer (Chromium's DownloadURL convention).
+  // Absolute local filesystem path for a decoded, leading-slash-free relative
+  // path, using the server-exposed root. Powers copy-path and drag-out.
+  function serveAbsPath(rel){
+    var base=(window.__serveBaseDir||'').replace(/\/+$/,'');
+    if(!base)return rel||'';
+    return rel?base+'/'+rel:base;
+  }
+  // Drag a sidebar file out. DownloadURL (Chromium) materializes the real file
+  // when dropped on Finder/desktop; text/plain and text/uri-list carry the local
+  // filesystem PATH (not the localhost URL), so dropping into Teams/editors gives
+  // the file's path — or the file itself where the target app honors it.
   var mimeMap={md:'text/markdown',markdown:'text/markdown',html:'text/html',htm:'text/html',txt:'text/plain',log:'text/plain',json:'application/json',yaml:'application/x-yaml',yml:'application/x-yaml',xml:'application/xml',css:'text/css',js:'text/javascript',ts:'text/plain',tsx:'text/plain',jsx:'text/plain',go:'text/plain',py:'text/x-python',rb:'text/plain',rs:'text/plain',java:'text/plain',c:'text/plain',h:'text/plain',cpp:'text/plain',sh:'text/plain',csv:'text/csv',tsv:'text/tab-separated-values',toml:'text/plain',svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',pdf:'application/pdf'};
   function mimeFor(name){var ext=name.split('.').pop().toLowerCase();return mimeMap[ext]||'application/octet-stream';}
   tree.addEventListener('dragstart',function(e){
@@ -107,15 +116,76 @@
     url.searchParams.set('raw','1');
     url.searchParams.set('dl','1'); // force a download so Chromium writes a real file on drop
     var abs=url.toString();
-    var parts=decodeURIComponent(href.replace(/^\//,'')).split('/');
+    var relDecoded=decodeURIComponent(href.replace(/^\//,''));
+    var parts=relDecoded.split('/');
     var filename=parts[parts.length-1]||'file';
+    var localPath=serveAbsPath(relDecoded);
     try{
       e.dataTransfer.setData('DownloadURL',mimeFor(filename)+':'+filename+':'+abs);
-      e.dataTransfer.setData('text/uri-list',abs);
-      e.dataTransfer.setData('text/plain',abs);
+      if(localPath){
+        e.dataTransfer.setData('text/uri-list','file://'+encodeURI(localPath));
+        e.dataTransfer.setData('text/plain',localPath);
+      }else{
+        e.dataTransfer.setData('text/uri-list',abs);
+        e.dataTransfer.setData('text/plain',abs);
+      }
       e.dataTransfer.effectAllowed='copyMove';
     }catch(err){}
   });
+  // ---- Right-click context menu: Copy path / Open (Reveal) in Finder ----
+  function serveToast(msg){
+    var t=document.createElement('div');t.className='serve-toast';t.textContent=msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(function(){t.classList.add('show');});
+    setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},200);},1200);
+  }
+  function copyText(text){
+    function ok(){serveToast('Copied path');}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(ok,fallback);}
+    else fallback();
+    function fallback(){try{var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();ok();}catch(e){}}
+  }
+  function revealInFinder(rel){fetch('/api/reveal?path='+encodeURIComponent(rel),{method:'POST'}).catch(function(){});}
+  var ctxMenu=null;
+  function closeCtxMenu(){if(ctxMenu){ctxMenu.remove();ctxMenu=null;}}
+  function showContextMenu(x,y,rel,type){
+    closeCtxMenu();
+    var abs=serveAbsPath(rel);
+    ctxMenu=document.createElement('div');ctxMenu.className='serve-context-menu';
+    [{label:'Copy path',fn:function(){copyText(abs);}},
+     {label:type==='dir'?'Open in Finder':'Reveal in Finder',fn:function(){revealInFinder(rel);}}
+    ].forEach(function(it){
+      var b=document.createElement('button');b.type='button';b.className='serve-context-item';b.textContent=it.label;
+      b.addEventListener('click',function(){it.fn();closeCtxMenu();});
+      ctxMenu.appendChild(b);
+    });
+    document.body.appendChild(ctxMenu);
+    var mw=ctxMenu.offsetWidth,mh=ctxMenu.offsetHeight;
+    if(x+mw>window.innerWidth)x=Math.max(4,window.innerWidth-mw-4);
+    if(y+mh>window.innerHeight)y=Math.max(4,window.innerHeight-mh-4);
+    ctxMenu.style.left=x+'px';ctxMenu.style.top=y+'px';
+  }
+  function ctxTarget(el){
+    if(!el||!el.closest)return null;
+    var f=el.closest('.sidebar-file');
+    if(f)return {rel:decodeURIComponent((f.getAttribute('href')||'').replace(/^\//,'')),type:'file'};
+    var d=el.closest('.sidebar-dir');
+    if(d)return {rel:d.getAttribute('data-dir')||'',type:'dir'};
+    return null;
+  }
+  tree.addEventListener('contextmenu',function(e){
+    var t=ctxTarget(e.target);if(!t)return;
+    e.preventDefault();showContextMenu(e.clientX,e.clientY,t.rel,t.type);
+  });
+  var hdr=document.getElementById('serve-sidebar-header');
+  if(hdr)hdr.addEventListener('contextmenu',function(e){
+    if(e.target.closest('#serve-sidebar-up'))return; // let the up button be
+    e.preventDefault();showContextMenu(e.clientX,e.clientY,'','dir'); // '' = served root
+  });
+  document.addEventListener('mousedown',function(e){if(ctxMenu&&!e.target.closest('.serve-context-menu'))closeCtxMenu();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeCtxMenu();});
+  window.addEventListener('resize',closeCtxMenu);
+  window.addEventListener('scroll',closeCtxMenu,true);
   function renderSidebar(files){
     tree.innerHTML=renderTree(files,0);
     var active=tree.querySelector('.sidebar-file.active');

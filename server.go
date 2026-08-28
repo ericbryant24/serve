@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -286,6 +288,7 @@ func (s *Server) broadcast(msg map[string]interface{}) {
 }
 
 func (s *Server) notifyReload() {
+	logf("debug", "reload broadcast")
 	s.broadcast(map[string]interface{}{"type": "reload"})
 }
 
@@ -482,7 +485,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, relPath stri
 	}
 
 	metaJS := fileMetaJSON(fi)
-	opts := wrapOptions{sidebar: sidebar, fileTree: tree, faviconPath: root.faviconSeed, fileMetaJS: metaJS}
+	opts := wrapOptions{sidebar: sidebar, fileTree: tree, faviconPath: root.faviconSeed, fileMetaJS: metaJS, baseDir: root.baseDir, showReport: true}
 
 	switch ext {
 	case ".md":
@@ -510,7 +513,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, relPath stri
 			http.Error(w, rerr.Error(), 500)
 			return
 		}
-		htmlStr := injectReloadScript(string(data), sidebar, tree, root.faviconSeed, metaJS, true, false)
+		htmlStr := injectReloadScript(string(data), sidebar, tree, root.faviconSeed, metaJS, root.baseDir, true, false)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, htmlStr)
 
@@ -796,6 +799,13 @@ func (s *Server) Start(ctx context.Context) error {
 			http.Error(w, "method not allowed", 405)
 		}
 	})
+	mux.HandleFunc("/api/reveal", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleReveal(w, r)
+		} else {
+			http.Error(w, "method not allowed", 405)
+		}
+	})
 	mux.HandleFunc("/api/file", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			s.handleGetFile(w, r)
@@ -818,6 +828,8 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	})
 
+	s.registerReportRoutes(mux)
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			s.handleDirRoot(w, r)
@@ -832,6 +844,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	url := fmt.Sprintf("http://%s:%d", s.host, port)
+	logf("info", "server started", fInt("port", port), fPath("root", root.baseDir))
 	fmt.Printf("Serving %s at %s\n", root.baseDir, url)
 	fmt.Println("Press Ctrl+C to stop")
 
@@ -843,7 +856,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.rewatch()
 	go func() {
 		if err := watchComments(s.notifyCommentsUpdated); err != nil {
-			fmt.Fprintf(os.Stderr, "comment watcher: %v\n", err)
+			logErr("comment watcher stopped", err)
 		}
 	}()
 
@@ -885,7 +898,7 @@ func (s *Server) rewatch() {
 			s.notifyFileTree(s.fileTree())
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "watcher: %v\n", err)
+			logErr("directory watcher stopped", err)
 		}
 	}()
 }
@@ -912,7 +925,62 @@ func (s *Server) handleReroot(w http.ResponseWriter, r *http.Request) {
 	s.treeMu.Unlock()
 	s.rewatch()
 	newRoot := s.root.Load()
+	logf("info", "re-rooted to the parent directory", fPath("root", newRoot.baseDir))
 	writeJSON(w, map[string]interface{}{"ok": true, "prefix": prefix, "dirName": newRoot.dirName})
+}
+
+// resolveWithinRoot maps a client-supplied relative path to an absolute path
+// inside the current root. Unlike fileFromRequest it allows directories and the
+// root itself (rel ""), for actions like reveal-in-Finder. Returns "" if the
+// path (or its symlink target) escapes the root, or doesn't exist.
+func (s *Server) resolveWithinRoot(rel string) string {
+	root := s.root.Load()
+	fp := filepath.Clean(filepath.Join(root.baseDir, rel))
+	relFP, err := filepath.Rel(root.baseDir, fp)
+	if err != nil || strings.HasPrefix(relFP, "..") {
+		return ""
+	}
+	if _, err := os.Stat(fp); err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(fp); err == nil {
+		resolvedRel, relErr := filepath.Rel(root.baseDir, resolved)
+		if relErr != nil || strings.HasPrefix(resolvedRel, "..") {
+			return ""
+		}
+	}
+	return fp
+}
+
+// handleReveal opens a directory in Finder, or reveals (selects) a file, using
+// macOS `open`. serve binds to localhost and the path is sandboxed to the
+// current root. Files use `open -R` so they're revealed, never launched.
+func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
+	fp := s.resolveWithinRoot(r.URL.Query().Get("path"))
+	if fp == "" {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if runtime.GOOS != "darwin" {
+		http.Error(w, "reveal in Finder is only supported on macOS", 501)
+		return
+	}
+	fi, err := os.Stat(fp)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	var cmd *exec.Cmd
+	if fi.IsDir() {
+		cmd = exec.Command("open", fp)
+	} else {
+		cmd = exec.Command("open", "-R", fp)
+	}
+	if err := cmd.Start(); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 // ---------------------------------------------------------------------------

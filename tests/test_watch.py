@@ -14,6 +14,7 @@ import pytest
 
 from conftest import (
     COMMENTS_DIR,
+    child_env,
     FIXTURES_DIR,
     ServeServer,
     _free_port,
@@ -40,6 +41,7 @@ class WatchProcess:
             cwd=Path(__file__).parent.parent,
             text=True,
             bufsize=1,
+            env=child_env(),
         )
         self.events: queue.Queue[dict] = queue.Queue()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
@@ -128,6 +130,7 @@ def _doc_id_for(path: Path) -> str:
         capture_output=True,
         text=True,
         check=True,
+        env=child_env(),
     )
     return json.loads(result.stdout)["doc_id"]
 
@@ -333,6 +336,7 @@ class TestSurvivesAtomicWrite:
                 capture_output=True,
                 text=True,
                 check=True,
+                env=child_env(),
             )
             data = json.loads(result.stdout)
             ids = {c["id"] for c in data["comments"]}

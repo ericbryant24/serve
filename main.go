@@ -52,6 +52,9 @@ func main() {
 		case "wait":
 			cmdWait(args[1:])
 			return
+		case "report":
+			cmdReport(args[1:])
+			return
 		}
 	}
 	cmdServe(args)
@@ -224,6 +227,7 @@ Subcommands:
   serve resolve <file> <id> [id...]  Mark comments as resolved
   serve watch [file] [--new]         Stream comment-change events as JSONL
   serve wait <file> [--new] [--timeout N]  Block until the next comment, print it, exit
+  serve report [show|export|file|rm] Bug reports captured from the browser
   serve list                         List running serve instances
   serve kill <pid>... | --all        Stop running serve instances
   serve home [--port N]              Dashboard of running instances (default port 7070)

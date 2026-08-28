@@ -3,13 +3,23 @@ Shared fixtures for the serve integration test suite.
 
 Set SERVE_CMD env var to override the binary:
   SERVE_CMD="./serve"   # default
+
+Every serve process the suite starts runs with HOME pointed at a throwaway
+directory. serve keeps its state under ~/.serve, and the comment store is keyed
+by the source file's inode: without isolation a run leaves comment files behind
+for temp files that no longer exist, and because the filesystem reuses inodes a
+later run's temp file inherits them. That shows up as a document mysteriously
+having comments before the test creates any. Set SERVE_TEST_HOME to keep the
+directory around for debugging.
 """
 
+import atexit
 import os
 import shlex
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -18,7 +28,23 @@ import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SERVE_CMD = os.environ.get("SERVE_CMD", "./serve")
-COMMENTS_DIR = Path.home() / ".serve" / "comments"
+
+_KEEP_HOME = bool(os.environ.get("SERVE_TEST_HOME"))
+TEST_HOME = Path(
+    os.environ.get("SERVE_TEST_HOME") or tempfile.mkdtemp(prefix="serve-test-home-")
+)
+COMMENTS_DIR = TEST_HOME / ".serve" / "comments"
+COMMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+if not _KEEP_HOME:
+    atexit.register(shutil.rmtree, TEST_HOME, True)
+
+
+def child_env(**extra: str) -> dict:
+    """Environment for a serve subprocess, with state redirected off $HOME."""
+    env = dict(os.environ, HOME=str(TEST_HOME))
+    env.update(extra)
+    return env
 
 
 def _free_port() -> int:
@@ -77,6 +103,7 @@ def _start_server(target: str, port: int) -> tuple[subprocess.Popen, str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=Path(__file__).parent.parent,
+        env=child_env(),
     )
     base_url = f"http://localhost:{port}"
     try:

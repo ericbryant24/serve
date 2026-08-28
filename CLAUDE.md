@@ -12,6 +12,13 @@ templates.go      — html/template page builder (wrapMarkdown, wrapCode, etc.) 
 static/page.gohtml — HTML page skeleton (embedded via go:embed)
 static/*.css/js   — Comment UI, vim mode, zoom, sidebar, presentation assets (embedded)
 comments.go       — Comment model, inode-based store key, JSON persistence (wrapped {path, comments} on disk)
+reports.go        — Report model, directory-per-report store under ~/.serve/reports/
+redact.go         — Path redaction (shape / extension-only) and credential scanning
+logging.go        — In-memory ring of the last 500 events; redaction happens at write time
+config.go         — Upload policy (prompt / never) via ~/.serve/config.json or SERVE_REPORT_UPLOAD
+github.go         — GitHub device flow, issue creation, token cache at ~/.serve/github.json
+server_reports.go — /api/report* routes, loopback guard, review payload
+report_cmd.go     — `serve report` subcommand
 watcher.go        — fsnotify directory watcher (restartable on re-root), trailing-edge debounce (50ms)
 watch.go          — `serve watch` subcommand: JSONL event stream over the comment store
 instances.go      — Process discovery via ps/lsof (no registry)
@@ -32,6 +39,16 @@ watch_test.go     — Unit tests for serve watch diff logic
 - **Rooting**: The server always serves a directory. A directory target is used as-is; a file target roots at its parent and renders that file at `/` (its `openPath`). The root is held in an atomic `rootState` (baseDir, dirName, faviconSeed, openPath) so it can be swapped at runtime without locking every handler. The sidebar's "up" control (`POST /api/reroot`) re-roots one level up, re-bases `openPath`, and restarts the directory watcher. baseDir is symlink-resolved so serving under `/tmp` or `/var` (macOS symlinks) doesn't trip the sandbox check. A catch-all route renders files by type (markdown, HTML, code, PDF, plain text) with a sidebar; state (expand/collapse, visibility, width) persists in localStorage. Comments work per-file via a `?file=` query param, falling back to `openPath` when absent.
 - **Watcher debounce**: Trailing-edge 50ms — coalesces rapid bursts (e.g. Claude Code editing multiple files) into a single reload. Ignores `node_modules`, `__pycache__`, `dist`, `build`, `vendor`, `target`.
 
+## Reports
+
+- **Storage**: `~/.serve/reports/<id>/` holds `report.json` plus attachment files. A directory per report so attachments are ordinary files the reporter can inspect with their own tools before sending. Mode 0700.
+- **Opt-in attachments**: `Attachment.Included` defaults to false in the struct, not in the UI. If the review gate has a bug, the failure mode is an attachment that did not send.
+- **Structural capture**: `static/report.js` clones the page, walks the original and clone in lockstep with two `TreeWalker`s, and wraps each text node in a span with transparent text over a solid ground. The glyphs still drive layout, so metrics and wrapping are identical while the words are unreadable. Media is replaced with placeholders, which is needed for correctness too: an SVG loaded into an `<img>` cannot fetch external resources.
+- **Redaction is a write-time property**: `logf` field constructors (`fPath`, `fErr`) redact before anything enters the ring buffer, so no later bug can leak a path out of it. Use `fErr` for anything derived from an `error` — Go's `*PathError` embeds an absolute path in `Error()`.
+- **Loopback only**: every `/api/report*` route refuses non-loopback requests. A report holds a screenshot of the served document, so on `--host 0.0.0.0` these routes would be a remote screenshot endpoint. `SERVE_REPORT_ALLOW_REMOTE=1` overrides.
+- **Single rendering path**: `Report.Markdown()` builds the issue body, and the review gate displays that same call's output, so what the reporter approves is byte-for-byte what gets posted.
+- **Filing**: GitHub device flow, no client secret, so `ghClientID` in `github.go` is a plain constant that ships in every build — no `-ldflags`, and a fresh install needs no setup beyond the reporter approving once. The browser dialog starts polling as soon as it shows the code, so approving on github.com advances the screen with no second click. `SERVE_GITHUB_DEVICE_URL`, `SERVE_GITHUB_TOKEN_URL` and `SERVE_GITHUB_API` override the endpoints (the integration suite points them at a stub); `SERVE_GITHUB_CLIENT_ID` overrides the client id. GitHub has no public REST endpoint for issue attachments, so filing posts the body and then reveals the report folder for the files to be dragged in.
+
 ## Comment API
 
 When the server is running:
@@ -45,6 +62,7 @@ CLI (no server needed):
 - `serve reply <file> <id> <text>` — reply to a comment (threads under it via `parent_id`)
 - `serve resolve <file> <id>...` — mark comments resolved
 - `serve watch [file] [--new]` — stream comment-change events as JSONL
+- `serve report [show|export|open|file|login|logout|rm]` — bug reports captured from the browser
 
 ## Commands
 
@@ -57,6 +75,9 @@ serve resolve file.md <id># resolve comment
 serve watch file.md       # stream events for one file
 serve watch               # stream events for every file in the store
 serve watch file.md --new # filter to new_comment/new_reply only
+serve report              # list captured bug reports
+serve report export <id>  # print the issue markdown (no account, no network)
+serve report file <id>    # file it as a GitHub issue
 serve agent-init          # set up agent integration (Claude Code)
 serve list                # list running instances (also: --json)
 serve kill <pid>          # stop one (also: --port N, --all, --force)
@@ -91,6 +112,15 @@ uv --directory tests run pytest -v
 # Performance benchmarks
 uv --directory tests run pytest test_performance.py -s -v
 ```
+
+Every serve process the suite starts runs with `HOME` pointed at a throwaway
+directory (`conftest.child_env`), so the real `~/.serve` is never written to.
+This matters because the comment store is keyed by inode: without it a run
+leaves comment files behind for temp files that no longer exist, and inode reuse
+makes a later run's temp file inherit them — which looks like a document having
+comments before the test created any. Any new test that spawns the binary must
+pass `env=child_env()`. Set `SERVE_TEST_HOME=/some/path` to keep the directory
+for debugging.
 
 ## Keeping docs in sync
 

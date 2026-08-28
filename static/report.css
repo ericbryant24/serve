@@ -1,0 +1,312 @@
+    /* ---- launcher ------------------------------------------------------ */
+    #serve-report-btn {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      z-index: 2147480012;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #fff;
+      color: #57606a;
+      border: 1px solid #d0d7de;
+      border-radius: 20px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      transition: color 0.15s, border-color 0.15s;
+    }
+    #serve-report-btn:hover { color: #24292e; border-color: #8c959f; }
+    #serve-report-btn:focus-visible { outline: 2px solid #0078d4; outline-offset: 2px; }
+    /* Track the sidebar without any JS: these body classes already exist. */
+    body.has-sidebar #serve-report-btn { left: 280px; }
+    body.has-sidebar.sidebar-collapsed #serve-report-btn { left: 20px; }
+
+    /* ---- modal shell --------------------------------------------------- */
+    #serve-report-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 2147480040;
+      background: rgba(27,31,36,0.45);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 20px;
+      overflow-y: auto;
+    }
+    #serve-report-modal[hidden] { display: none; }
+    .srp-card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+      width: 100%;
+      max-width: 720px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      color: #24292e;
+    }
+    .srp-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid #e8e8e8;
+    }
+    .srp-headline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .srp-head h2 { margin: 0; font-size: 16px; font-weight: 600; border: none; padding: 0; }
+    .srp-step {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #8c959f;
+    }
+    .srp-close {
+      background: none; border: none; font-size: 22px; line-height: 1;
+      cursor: pointer; color: #656d76; padding: 0 4px;
+    }
+    .srp-close:hover { color: #24292e; }
+    .srp-body { padding: 20px; }
+    .srp-foot {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 14px 20px;
+      border-top: 1px solid #e8e8e8;
+      background: #f6f8fa;
+      border-radius: 0 0 10px 10px;
+      flex-wrap: wrap;
+    }
+    .srp-foot .srp-spacer { margin-right: auto; font-size: 12.5px; color: #656d76; }
+
+    /* ---- form ---------------------------------------------------------- */
+    .srp-field { margin-bottom: 16px; }
+    .srp-field > label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #24292e;
+      margin-bottom: 5px;
+    }
+    .srp-field input[type=text], .srp-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #24292e;
+      background: #fff;
+    }
+    .srp-field textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+    .srp-field input:focus, .srp-field textarea:focus {
+      outline: none; border-color: #0078d4; box-shadow: 0 0 0 3px rgba(0,120,212,0.15);
+    }
+    .srp-hint { font-size: 12.5px; color: #656d76; margin-top: 5px; }
+
+    .srp-kinds { display: flex; gap: 8px; }
+    .srp-kind {
+      flex: 1;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 9px 12px;
+      cursor: pointer;
+      background: #fff;
+      font-family: inherit;
+      font-size: 13.5px;
+      color: #24292e;
+      text-align: left;
+    }
+    .srp-kind:hover { border-color: #8c959f; }
+    .srp-kind[aria-pressed=true] {
+      border-color: #0078d4;
+      background: #f0f7fd;
+      box-shadow: inset 0 0 0 1px #0078d4;
+    }
+
+    /* ---- buttons ------------------------------------------------------- */
+    .srp-btn {
+      border-radius: 6px;
+      padding: 7px 16px;
+      font-size: 13.5px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid #d0d7de;
+      background: #f6f8fa;
+      color: #24292e;
+    }
+    .srp-btn:hover:not(:disabled) { background: #eef1f4; }
+    .srp-btn.primary { background: #0078d4; border-color: #0078d4; color: #fff; }
+    .srp-btn.primary:hover:not(:disabled) { background: #106ebe; }
+    .srp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .srp-btn:focus-visible { outline: 2px solid #0078d4; outline-offset: 2px; }
+
+    /* ---- review -------------------------------------------------------- */
+    .srp-section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #8c959f;
+      margin: 20px 0 8px;
+    }
+    .srp-section-label:first-child { margin-top: 0; }
+
+    .srp-payload {
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #f6f8fa;
+      padding: 12px 14px;
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 260px;
+      overflow-y: auto;
+      color: #24292e;
+    }
+    .srp-payload-title { font-weight: 600; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #d8dee4; }
+
+    .srp-att {
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .srp-att.on { border-color: #0078d4; }
+    .srp-att-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      background: #fff;
+    }
+    .srp-att-head:hover { background: #f6f8fa; }
+    .srp-att-head input[type=checkbox] { margin: 0; width: 15px; height: 15px; cursor: pointer; flex: none; }
+    .srp-att-name { font-weight: 600; font-size: 13.5px; }
+    .srp-att-meta { color: #656d76; font-size: 12.5px; margin-left: auto; white-space: nowrap; }
+    .srp-att-preview {
+      border-top: 1px solid #e8e8e8;
+      padding: 12px;
+      background: #fafbfc;
+      max-height: 300px;
+      overflow: auto;
+    }
+    .srp-att-preview img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      border: 1px solid #d0d7de;
+      border-radius: 4px;
+      background: #fff;
+    }
+    .srp-att-preview pre {
+      margin: 0;
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      font-size: 11.5px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: none;
+      padding: 0;
+      color: #24292e;
+    }
+
+    /* ---- secrets ------------------------------------------------------- */
+    .srp-secrets {
+      border: 1px solid #e0b34a;
+      background: #fff8e6;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
+    .srp-secrets h4 { margin: 0 0 6px; font-size: 13.5px; font-weight: 600; color: #7a4d06; }
+    .srp-secrets p { margin: 0 0 8px; font-size: 13px; color: #614708; }
+    .srp-secret-list { margin: 0 0 10px; padding-left: 18px; font-size: 12.5px; color: #614708; }
+    .srp-secret-list code {
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      background: rgba(0,0,0,0.06);
+      border-radius: 3px;
+      padding: 1px 4px;
+    }
+    .srp-ack { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #614708; cursor: pointer; }
+    .srp-ack input { margin: 2px 0 0; flex: none; }
+
+    /* ---- destination --------------------------------------------------- */
+    .srp-dest {
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 11px 14px;
+      font-size: 13px;
+      color: #24292e;
+      background: #f6f8fa;
+    }
+    .srp-dest .srp-public { font-weight: 600; color: #953800; }
+    .srp-dest code {
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      font-size: 12.5px;
+      background: rgba(0,0,0,0.05);
+      border-radius: 3px;
+      padding: 1px 5px;
+    }
+    .srp-blocked { border-color: #d0d7de; background: #f6f8fa; color: #656d76; }
+
+    /* ---- device flow / status ------------------------------------------ */
+    .srp-code-row { display: flex; align-items: stretch; gap: 8px; margin: 12px 0; }
+    .srp-code-row .srp-code { flex: 1; margin: 0; }
+    .srp-code-row .srp-btn { flex: none; }
+    .srp-link-btn { display: inline-flex; align-items: center; text-decoration: none; }
+    .srp-link-btn:hover { text-decoration: none; color: #fff; }
+    .srp-waiting {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13px;
+      color: #57606a;
+      margin: 0 0 12px;
+    }
+    .srp-spinner {
+      flex: none;
+      width: 13px;
+      height: 13px;
+      border: 2px solid #d0d7de;
+      border-top-color: #0078d4;
+      border-radius: 50%;
+      animation: srp-spin 0.8s linear infinite;
+    }
+    @keyframes srp-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .srp-spinner { animation: none; border-top-color: #d0d7de; }
+    }
+    .srp-code {
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-align: center;
+      padding: 14px;
+      background: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      margin: 12px 0;
+      user-select: all;
+    }
+    .srp-msg { font-size: 13px; padding: 10px 12px; border-radius: 6px; margin-bottom: 14px; }
+    .srp-msg.err { background: #ffebe9; border: 1px solid #ffc1bc; color: #82071e; }
+    .srp-msg.ok { background: #dafbe1; border: 1px solid #aceebb; color: #0f5323; }
+    .srp-msg.info { background: #f6f8fa; border: 1px solid #d0d7de; color: #24292e; }
+    .srp-msg a { color: #0366d6; }
+
+    @media (prefers-reduced-motion: reduce) {
+      #serve-report-btn { transition: none; }
+    }

@@ -13,6 +13,7 @@ import pytest
 
 from conftest import (
     COMMENTS_DIR,
+    child_env,
     ServeServer,
     _free_port,
     _serve_cmd_parts,
@@ -29,6 +30,7 @@ def run_cli(*args: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,
+        env=child_env(),
     )
 
 

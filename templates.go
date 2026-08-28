@@ -46,6 +46,22 @@ var editCSS string
 //go:embed static/edit.js
 var editJS string
 
+//go:embed static/report.css
+var reportCSS string
+
+// rawHTMLSidebarCSS overrides the sidebar's body offset for documents serve did
+// not render itself. The 20px gutter in sidebar.css is readability padding for
+// markdown; imposing it on someone's HTML prototype shifts a layout that
+// deliberately set body{margin:0}, and leaves a stripe down the side even when
+// the sidebar is collapsed.
+const rawHTMLSidebarCSS = `
+    body.has-sidebar { margin-left: var(--serve-sidebar-w) !important; }
+    body.sidebar-collapsed { margin-left: 0 !important; }
+`
+
+//go:embed static/report.js
+var reportJS string
+
 //go:embed static/page.gohtml
 var pageTemplateSource string
 
@@ -218,9 +234,14 @@ type wrapOptions struct {
 	fileTree    []FileNode
 	faviconPath string
 	fileMetaJS  string // JSON for window.__serveFile (current file name + dates)
+	baseDir     string // absolute served-root path, exposed as window.__serveBaseDir
 	isMarp      bool
 	extraCSS    string
 	showEdit    bool
+	// showReport gates the in-app report UI. It is off by default so the
+	// self-contained --data-url build, which has no server to post to, does
+	// not ship a dead button.
+	showReport bool
 }
 
 type pageData struct {
@@ -236,12 +257,14 @@ type pageData struct {
 	EditCSS        template.CSS
 	ShowComments   bool
 	ShowEdit       bool
+	ShowReport     bool
 	IsMarp         bool
 	Sidebar        bool
 	SidebarDirName string
 	SidebarPath    template.JS
 	FileTree       template.JS
 	CurrentFile    template.JS
+	BaseDir        template.JS
 	Content        template.HTML
 	ReloadScript   template.JS
 	CommentJS      template.JS
@@ -251,6 +274,8 @@ type pageData struct {
 	SidebarJS      template.JS
 	PresentJS      template.JS
 	EditJS         template.JS
+	ReportCSS      template.CSS
+	ReportJS       template.JS
 }
 
 func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
@@ -281,6 +306,11 @@ func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
 		d.EditCSS = template.CSS(editCSS)
 		d.EditJS = template.JS(editJS)
 	}
+	if opts.showReport {
+		d.ShowReport = true
+		d.ReportCSS = template.CSS(reportCSS)
+		d.ReportJS = template.JS(reportJS)
+	}
 	if opts.sidebar != nil {
 		tree := opts.fileTree
 		if tree == nil {
@@ -295,6 +325,7 @@ func buildPageData(title string, opts wrapOptions, showComments bool) pageData {
 		if opts.fileMetaJS != "" {
 			d.CurrentFile = template.JS(opts.fileMetaJS)
 		}
+		d.BaseDir = template.JS(jsString(opts.baseDir))
 		d.SidebarCSS = template.CSS(sidebarCSS)
 		d.SidebarJS = template.JS(sidebarJS)
 	}
@@ -548,7 +579,7 @@ func annotateHTMLSourceLines(html string) string {
 }
 
 // injectReloadScript injects scripts into an existing HTML document.
-func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, faviconPath, fileMetaJS string, annotate, bare bool) string {
+func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, faviconPath, fileMetaJS, baseDir string, annotate, bare bool) string {
 	if annotate {
 		html = annotateHTMLSourceLines(html)
 	}
@@ -564,6 +595,7 @@ func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, fa
 		cssParts.WriteString(vimCSS)
 		if sidebar != nil {
 			cssParts.WriteString(sidebarCSS)
+			cssParts.WriteString(rawHTMLSidebarCSS)
 		}
 		cssTag = "<style>" + cssParts.String() + "</style>"
 
@@ -579,8 +611,8 @@ func injectReloadScript(html string, sidebar *[2]string, fileTree []FileNode, fa
 				fileGlobal = fileMetaJS
 			}
 			scriptParts.WriteString(fmt.Sprintf(
-				"<script>window.__servePath = %s; window.__serveFileTree = %s; window.__serveFile = %s;</script>\n",
-				jsString(sidebar[1]), string(treeJSON), fileGlobal,
+				"<script>window.__servePath = %s; window.__serveFileTree = %s; window.__serveFile = %s; window.__serveBaseDir = %s;</script>\n",
+				jsString(sidebar[1]), string(treeJSON), fileGlobal, jsString(baseDir),
 			))
 			scriptParts.WriteString(
 				`<nav id="serve-sidebar">` +

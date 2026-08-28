@@ -130,6 +130,34 @@ serve watch                     # stream events for every file in the store
 serve watch doc.md --new        # only new comments and replies
 ```
 
+### Bug reports and feature requests
+
+Click **Report** in the browser. The page is captured with every run of document text replaced by a solid bar, so layout, wrapping and overflow survive but the words do not. The report is written to `~/.serve/reports/<id>/` and nothing is sent anywhere.
+
+Filing is a separate step. Before anything leaves the machine you see the exact issue body, every attachment (each off until you turn it on) and a warning for anything that looks like a credential.
+
+```bash
+serve report                  # list stored reports (--json for scripting)
+serve report show <id>        # print one report as JSON
+serve report export <id>      # print the issue markdown to stdout
+serve report open <id>        # open the report folder
+serve report file <id>        # file it as a GitHub issue
+serve report login            # authorize this machine with GitHub
+serve report rm <id>...       # delete reports and their attachments
+```
+
+Filing uses GitHub's device flow, so the issue is created under your own account and no credential ships in the binary. The first time on a machine you get a code to enter at github.com; the dialog waits and moves on by itself once you approve. After that it is a single click. `serve report export` needs neither an account nor a network connection.
+
+To turn filing off entirely, leaving local capture and `export` working:
+
+```bash
+export SERVE_REPORT_UPLOAD=never
+# or, in ~/.serve/config.json
+# { "reports": { "upload": "never" } }
+```
+
+The report API is served over loopback only. A report can contain a screenshot of the document you are viewing, so it is not exposed when you bind with `--host`.
+
 ### Managing running instances
 
 ```bash
@@ -161,6 +189,16 @@ curl -X PATCH http://localhost:8000/api/comments/<id> \
   -H 'Content-Type: application/json' \
   -d '{"resolved":true}'
 curl -X DELETE http://localhost:8000/api/comments/<id>
+```
+
+Reports have their own routes, reachable from localhost only:
+
+```bash
+curl http://localhost:8000/api/report
+curl http://localhost:8000/api/report/<id>          # report, issue markdown, secret scan
+curl -X PATCH http://localhost:8000/api/report/<id> \
+  -H 'Content-Type: application/json' \
+  -d '{"include":"<attachment-id>","included":true}'
 ```
 
 ## Build from source

@@ -336,9 +336,9 @@ func (s *CommentStore) tryAdoptOrphan() ([]Comment, string, bool) {
 		return nil, "", false
 	}
 	if matches > 1 {
-		fmt.Fprintf(os.Stderr,
-			"serve: %d orphaned comment files claim %s; adopting newest (%s)\n",
-			matches, absTarget, filepath.Base(bestPath))
+		logf("warn", "orphaned comment files claim the same document; adopting the newest",
+			fInt("matches", matches), fPath("target", absTarget),
+			fSafe("adopted", filepath.Base(bestPath)))
 	}
 	if err := os.Rename(bestPath, s.path); err != nil {
 		return nil, "", false

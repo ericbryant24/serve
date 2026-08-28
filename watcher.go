@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +59,7 @@ func watchDirectory(dir string, stop <-chan struct{}, onChange func()) error {
 	absRoot, _ := filepath.Abs(dir)
 	_ = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "watcher: walk error at %s: %v\n", path, err)
+			logErr("watcher: walk error", err, fPath("path", path))
 			return nil
 		}
 		if info.IsDir() {
@@ -68,7 +67,7 @@ func watchDirectory(dir string, stop <-chan struct{}, onChange func()) error {
 				return filepath.SkipDir
 			}
 			if err := watcher.Add(path); err != nil {
-				fmt.Fprintf(os.Stderr, "watcher: failed to watch %s: %v\n", path, err)
+				logErr("watcher: could not watch directory", err, fPath("path", path))
 			}
 		}
 		return nil
@@ -102,7 +101,7 @@ func watchDirectory(dir string, stop <-chan struct{}, onChange func()) error {
 			if !ok {
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "watcher error: %v\n", err)
+			logErr("watcher error", err)
 		}
 	}
 }

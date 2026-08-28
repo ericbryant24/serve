@@ -121,3 +121,16 @@ class TestReconnectResync:
         finally:
             proc.terminate()
             proc.wait(timeout=10)
+
+
+class TestReveal:
+    # Only the rejection paths are exercised here — a successful reveal would
+    # actually launch Finder, which we don't want during a test run.
+    def test_reveal_get_not_allowed(self, nested_file_server: ServeServer):
+        assert nested_file_server.get("/api/reveal?path=intro.md").status_code == 405
+
+    def test_reveal_traversal_rejected(self, nested_file_server: ServeServer):
+        assert nested_file_server.post("/api/reveal?path=../../etc/passwd").status_code == 404
+
+    def test_reveal_missing_path_rejected(self, nested_file_server: ServeServer):
+        assert nested_file_server.post("/api/reveal?path=does-not-exist.md").status_code == 404

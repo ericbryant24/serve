@@ -45,6 +45,9 @@
 {{- if .ShowEdit}}
 {{.EditCSS}}
 {{- end}}
+{{- if .ShowReport}}
+{{.ReportCSS}}
+{{- end}}
   </style>
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
@@ -55,7 +58,7 @@
 </head>
 <body>
 {{- if .Sidebar}}
-<script>window.__servePath = {{.SidebarPath}}; window.__serveFileTree = {{.FileTree}}; window.__serveFile = {{.CurrentFile}};</script>
+<script>window.__servePath = {{.SidebarPath}}; window.__serveFileTree = {{.FileTree}}; window.__serveFile = {{.CurrentFile}}; window.__serveBaseDir = {{.BaseDir}};</script>
 <nav id="serve-sidebar">
   <div id="serve-sidebar-header"><button id="serve-sidebar-up" title="Serve the parent directory">&#8593;</button><span class="dir-name">{{.SidebarDirName}}</span></div>
   <div id="serve-sidebar-tree"></div>
@@ -89,6 +92,19 @@
   </div>
 </div>
 {{- end}}
+{{- if .ShowReport}}
+<button id="serve-report-btn" type="button" title="Report a bug or request a feature"><span aria-hidden="true">&#9873;</span> Report</button>
+<div id="serve-report-modal" hidden>
+  <div class="srp-card" role="dialog" aria-modal="true" aria-label="Send a report">
+    <div class="srp-head">
+      <div class="srp-headline"><h2 class="srp-title">Report a bug</h2><span class="srp-step"></span></div>
+      <button class="srp-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="srp-body"></div>
+    <div class="srp-foot"></div>
+  </div>
+</div>
+{{- end}}
 <script id="serve-reload-script">{{.ReloadScript}}</script>
 {{- if .ShowComments}}
 <script>{{.CommentJS}}</script>
@@ -104,6 +120,9 @@
 {{- end}}
 {{- if .ShowEdit}}
 <script>{{.EditJS}}</script>
+{{- end}}
+{{- if .ShowReport}}
+<script>{{.ReportJS}}</script>
 {{- end}}
 </body>
 </html>
