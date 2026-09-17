@@ -52,6 +52,7 @@
       waitForMermaid(function() { clearHighlights(); applyHighlights(); updateBadge(); });
     });
     setupSelectionListener();
+    setupCommentShortcut();
   }
   function setupSelectionListener() {
     var btn = document.getElementById('comment-btn');
@@ -88,18 +89,35 @@
       if (pendingSelection) openCommentForm(pendingSelection);
     });
   }
+  // Position a popover so it hangs off rect (viewport coordinates) without
+  // running off screen. Page-level threads open from the launcher or the
+  // panel, both pinned to an edge, so unclamped placement puts them
+  // half-outside the window.
+  function placePopover(popover, rect) {
+    var width = popover.offsetWidth || 360;
+    var left = Math.min(rect.left, window.innerWidth - width - 12);
+    if (left < 8) left = 8;
+    var top = rect.bottom + 8;
+    var below = window.innerHeight - rect.bottom;
+    if (below < popover.offsetHeight + 16 && rect.top > below) {
+      top = rect.top - popover.offsetHeight - 8;
+      if (top < 8) top = 8;
+    }
+    popover.style.left = (window.scrollX + left) + 'px';
+    popover.style.top = (window.scrollY + top) + 'px';
+  }
   function openCommentForm(selInfo, parentId) {
     closePopover();
     var popover = document.createElement('div');
     popover.className = 'comment-popover';
-    var block = selInfo.block;
-    if (block) {
-      var rect = block.getBoundingClientRect();
-      popover.style.left = (window.scrollX + rect.left) + 'px';
-      popover.style.top = (window.scrollY + rect.bottom + 8) + 'px';
-    } else { popover.style.left = '50px'; popover.style.top = (window.scrollY + 100) + 'px'; }
-    popover.innerHTML = '<div class="comment-form"><textarea placeholder="Write a comment..." autofocus></textarea><div class="hint">Ctrl+Enter to submit · Escape to cancel</div><div class="comment-form-actions"><button class="btn-cancel">Cancel</button><button class="btn-submit">Comment</button></div></div>';
+    var pageLevel = !!selInfo.pageLevel;
+    var label = pageLevel ? '<div class="page-scope-label">Comment on the whole page</div>' : '';
+    var placeholder = pageLevel ? 'Write a comment about this page...' : 'Write a comment...';
+    popover.innerHTML = '<div class="comment-form">' + label + '<textarea placeholder="' + placeholder + '" autofocus></textarea><div class="hint">Ctrl+Enter to submit · Escape to cancel</div><div class="comment-form-actions"><button class="btn-cancel">Cancel</button><button class="btn-submit">Comment</button></div></div>';
     document.body.appendChild(popover); activePopover = popover;
+    var anchorEl = selInfo.block || (pageLevel ? document.getElementById('comment-page-btn') : null);
+    if (anchorEl) placePopover(popover, anchorEl.getBoundingClientRect());
+    else { popover.style.left = (window.scrollX + 50) + 'px'; popover.style.top = (window.scrollY + 100) + 'px'; }
     var ta = popover.querySelector('textarea'); ta.focus();
     ta.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') { closePopover(); e.stopPropagation(); }
@@ -111,11 +129,19 @@
   function submitComment(selInfo, text, parentId) {
     if (!text) return;
     var body = { text: text, anchor_text: selInfo.anchorText || '', block_text: selInfo.blockText || '' };
+    if (selInfo.pageLevel) body.scope = 'page';
     if (selInfo.sourceLines) { body.source_line_start = selInfo.sourceLines.start; body.source_line_end = selInfo.sourceLines.end; }
     if (parentId) body.parent_id = parentId;
     api('POST', '', body).then(function(comment) {
       comments.push(comment); closePopover(); clearHighlights(); applyHighlights(); updateBadge();
       window.getSelection().removeAllRanges();
+      // A page-level comment leaves no highlight in the document, so open the
+      // panel — otherwise submitting looks like nothing happened.
+      if (selInfo.pageLevel) {
+        renderPanel();
+        var panel = document.getElementById('comment-panel');
+        if (panel) panel.classList.add('open');
+      }
     });
   }
   function closePopover() { if (activePopover) { activePopover.remove(); activePopover = null; } }
@@ -300,10 +326,9 @@
     var replies = comments.filter(function(c) { return c.parent_id === commentId; });
     replies.sort(function(a, b) { return a.created_at.localeCompare(b.created_at); });
     var popover = document.createElement('div'); popover.className = 'comment-popover';
-    var rect = targetEl.getBoundingClientRect();
-    popover.style.left = (window.scrollX + rect.left) + 'px'; popover.style.top = (window.scrollY + rect.bottom + 8) + 'px';
     popover.innerHTML = renderThread(root, replies);
     document.body.appendChild(popover); activePopover = popover;
+    placePopover(popover, targetEl.getBoundingClientRect());
     popover.querySelectorAll('[data-action]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var action = btn.getAttribute('data-action'); var id = btn.getAttribute('data-id');
@@ -311,17 +336,19 @@
         else if (action === 'unresolve') toggleResolve(id, false);
         else if (action === 'delete') deleteComment(id);
         else if (action === 'reply') {
-          var selInfo = { anchorText: root.anchor_text, blockText: root.block_text,
+          var pageLevel = root.scope === 'page';
+          var selInfo = { anchorText: root.anchor_text, blockText: root.block_text, pageLevel: pageLevel,
             sourceLines: root.source_line_start ? { start: root.source_line_start, end: root.source_line_end } : null,
-            block: targetEl.closest('[data-source-lines]') || targetEl.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, pre, div') };
+            block: pageLevel ? null : (targetEl.closest('[data-source-lines]') || targetEl.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, pre, div')) };
           closePopover(); openCommentForm(selInfo, commentId);
         }
       });
     });
   }
   function renderThread(root, replies) {
-    var cls = 'comment-thread' + (root.resolved ? ' resolved' : '');
+    var cls = 'comment-thread' + (root.resolved ? ' resolved' : '') + (root.scope === 'page' ? ' page-level' : '');
     var html = '<div class="' + cls + '">';
+    if (root.scope === 'page') html += '<div class="page-scope-label">Whole page</div>';
     if (root.resolved) {
       html += '<div class="comment-card" style="display:flex;align-items:center;justify-content:space-between;"><span class="resolved-badge">&#10003; Resolved</span><div>' +
         '<button data-action="unresolve" data-id="' + root.id + '" class="comment-actions btn-unresolve" style="border:none;background:none;cursor:pointer;font-size:12px;">Unresolve</button>' +
@@ -395,10 +422,51 @@
     var badge = document.getElementById('comment-badge');
     var roots = comments.filter(function(c) { return !c.parent_id; });
     var unresolved = roots.filter(function(c) { return !c.resolved; });
+    document.body.classList.toggle('serve-has-comments', roots.length > 0);
     if (roots.length === 0) { badge.style.display = 'none'; return; }
     badge.style.display = 'block';
     badge.textContent = unresolved.length > 0 ? unresolved.length + ' comment' + (unresolved.length !== 1 ? 's' : '') : roots.length + ' resolved';
     badge.className = 'comment-count-badge' + (unresolved.length > 0 ? ' has-unresolved' : '');
+  }
+  function openPageComment() {
+    var selBtn = document.getElementById('comment-btn');
+    if (selBtn) selBtn.style.display = 'none';
+    openCommentForm({ anchorText: '', blockText: '', sourceLines: null, block: null, pageLevel: true });
+  }
+  function setupPageButton() {
+    var btn = document.getElementById('comment-page-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      openPageComment();
+    });
+  }
+  // "c" opens a comment form: on the current selection if there is one, on the
+  // whole page if there is not. Bound on window rather than document so vim.js
+  // (bound on document) sees the key first — in its visual, cell and caret
+  // modes it opens its own anchored form and calls preventDefault, which this
+  // handler then honours. In vim's normal mode nothing is selected, so "c"
+  // means the page there too.
+  function setupCommentShortcut() {
+    window.addEventListener('keydown', function(e) {
+      if (e.key !== 'c' || e.defaultPrevented) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      var el = document.activeElement;
+      if (el) {
+        var tag = el.tagName;
+        if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || el.isContentEditable) return;
+      }
+      if (activePopover) return; // a form is already open; don't replace a draft
+      e.preventDefault();
+      var sel = window.getSelection();
+      if (pendingSelection && sel && !sel.isCollapsed && sel.toString().trim()) {
+        var btn = document.getElementById('comment-btn');
+        if (btn) btn.style.display = 'none';
+        openCommentForm(pendingSelection);
+        return;
+      }
+      openPageComment();
+    });
   }
   function setupPanel() {
     var badge = document.getElementById('comment-badge'); var panel = document.getElementById('comment-panel'); var closeBtn = document.getElementById('panel-close');
@@ -420,16 +488,18 @@
     var body = document.getElementById('panel-body');
     var roots = comments.filter(function(c) { return !c.parent_id; });
     roots.sort(function(a, b) { return a.created_at.localeCompare(b.created_at); });
-    if (roots.length === 0) { body.innerHTML = '<p style="color:#656d76;font-size:13px;text-align:center;padding:2em 0;">No comments yet. Select text to add one.</p>'; return; }
+    if (roots.length === 0) { body.innerHTML = '<p style="color:#656d76;font-size:13px;text-align:center;padding:2em 0;">No comments yet. Select text to add one, or press <kbd>c</kbd> to comment on the page.</p>'; return; }
     var html = '';
     roots.forEach(function(c) {
       var replies = comments.filter(function(r) { return r.parent_id === c.id; });
-      var anchor = c.anchor_text || '(no selection)';
+      var pageLevel = c.scope === 'page';
+      var anchor = pageLevel ? 'Whole page' : (c.anchor_text || '(no selection)');
       if (anchor.length > 60) anchor = anchor.substring(0, 60) + '...';
-      var cls = 'panel-comment-item' + (c.resolved ? ' resolved' : '');
+      var cls = 'panel-comment-item' + (c.resolved ? ' resolved' : '') + (pageLevel ? ' page-level' : '');
       var badge2 = c.resolved ? '<span class="resolved-badge" style="font-size:10px;padding:1px 6px;margin-left:6px;">resolved</span>' : '';
       html += '<div class="' + cls + '" data-panel-comment="' + c.id + '">';
-      html += '<div class="panel-comment-anchor">"' + esc(anchor) + '"' + badge2 + '</div>';
+      var anchorLabel = pageLevel ? esc(anchor) : '"' + esc(anchor) + '"';
+      html += '<div class="panel-comment-anchor">' + anchorLabel + badge2 + '</div>';
       html += '<div class="panel-comment-body"><div class="comment-text">' + esc(c.text) + '</div><div class="comment-meta">' + timeAgo(c.created_at);
       if (c.source_line_start) html += ' · line ' + c.source_line_start;
       html += '</div></div>';
@@ -441,8 +511,12 @@
       item.addEventListener('click', function() {
         var cid = item.getAttribute('data-panel-comment');
         var mark = document.querySelector('mark[data-comment-id="' + cid + '"]');
+        // With no highlight to scroll to (a page-level comment, or one whose
+        // anchor text is gone) hang the thread off the launcher instead of the
+        // panel item, which is about to slide off screen.
+        var fallback = document.getElementById('comment-page-btn') || item;
         if (mark) { mark.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(function() { showCommentThread(cid, mark); }, 350); }
-        else { showCommentThread(cid, item); }
+        else { setTimeout(function() { showCommentThread(cid, fallback); }, 260); }
         document.getElementById('comment-panel').classList.remove('open');
       });
     });
@@ -456,6 +530,6 @@
     });
   };
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function() { init(); setupPanel(); });
-  } else { init(); setupPanel(); }
+    document.addEventListener('DOMContentLoaded', function() { init(); setupPanel(); setupPageButton(); });
+  } else { init(); setupPanel(); setupPageButton(); }
 })();

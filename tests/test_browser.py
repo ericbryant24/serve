@@ -201,6 +201,123 @@ class TestCommentWorkflow:
         expect(badge).to_be_visible(timeout=4000)
 
 
+class TestPageLevelComments:
+    def test_launcher_is_always_available(self, md_page: Page):
+        expect(md_page.locator("#comment-page-btn")).to_be_visible()
+
+    def test_creates_page_comment_and_shows_it_in_the_panel(self, md_page: Page):
+        md_page.click("#comment-page-btn")
+        ta = md_page.locator(".comment-form textarea")
+        expect(ta).to_be_visible(timeout=2000)
+        ta.fill("This page needs an intro")
+        md_page.keyboard.press("Control+Enter")
+
+        # No highlight is created — the comment belongs to the whole document.
+        expect(md_page.locator("#comment-badge")).to_be_visible(timeout=4000)
+        expect(md_page.locator("mark.comment-highlight")).to_have_count(0)
+
+        # Submitting opens the panel, where the item is labelled "Whole page".
+        panel = md_page.locator("#comment-panel.open")
+        expect(panel).to_be_visible(timeout=2000)
+        item = panel.locator(".panel-comment-item.page-level")
+        expect(item).to_have_count(1)
+        assert "Whole page" in item.inner_text()
+        assert "This page needs an intro" in item.inner_text()
+
+    def test_page_comment_persists_with_scope(self, md_page: Page, md_server: ServeServer):
+        md_page.click("#comment-page-btn")
+        ta = md_page.locator(".comment-form textarea")
+        expect(ta).to_be_visible(timeout=2000)
+        ta.fill("Scope check")
+        md_page.keyboard.press("Control+Enter")
+        expect(md_page.locator("#comment-badge")).to_be_visible(timeout=4000)
+
+        comments = md_server.get("/api/comments").json()["comments"]
+        assert [c["scope"] for c in comments] == ["page"]
+
+    def test_thread_opens_from_the_panel(self, page: Page, md_server: ServeServer):
+        md_server.post("/api/comments", json={"text": "Page note", "scope": "page"})
+        page.goto(f"{md_server.base_url}/")
+        page.wait_for_load_state("networkidle")
+
+        page.click("#comment-badge")
+        page.click(".panel-comment-item.page-level")
+        popover = page.locator(".comment-popover.page-level, .comment-popover")
+        expect(popover.first).to_be_visible(timeout=3000)
+        assert "Page note" in popover.first.inner_text()
+        # A thread anchored to nothing must still land inside the viewport.
+        box = popover.first.bounding_box()
+        width = page.evaluate("() => window.innerWidth")
+        assert box["x"] >= 0 and box["x"] + box["width"] <= width + 1
+
+    def test_page_comment_is_not_listed_as_unanchored(self, page: Page, md_server: ServeServer):
+        md_server.post("/api/comments", json={"text": "Page note", "scope": "page"})
+        page.goto(f"{md_server.base_url}/")
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("#comment-badge")).to_be_visible(timeout=4000)
+        expect(page.locator(".orphaned-comments")).to_have_count(0)
+
+
+class TestCommentShortcut:
+    """"c" opens a comment form: the whole page when nothing is selected, the
+    selection when there is one."""
+
+    def test_c_opens_a_page_comment_form(self, md_page: Page):
+        md_page.locator("body").click(position={"x": 5, "y": 5})
+        md_page.keyboard.press("c")
+        form = md_page.locator(".comment-form")
+        expect(form).to_be_visible(timeout=2000)
+        assert "Comment on the whole page" in form.inner_text()
+
+    def test_c_creates_a_page_scoped_comment(self, md_page: Page, md_server: ServeServer):
+        md_page.keyboard.press("c")
+        ta = md_page.locator(".comment-form textarea")
+        expect(ta).to_be_visible(timeout=2000)
+        ta.fill("Shortcut page note")
+        md_page.keyboard.press("Control+Enter")
+        expect(md_page.locator("#comment-badge")).to_be_visible(timeout=4000)
+
+        comments = md_server.get("/api/comments").json()["comments"]
+        assert [(c["text"], c["scope"]) for c in comments] == [
+            ("Shortcut page note", "page")
+        ]
+
+    def test_c_comments_on_the_selection_when_there_is_one(self, md_page: Page):
+        select_text_in_first_paragraph(md_page)
+        md_page.keyboard.press("c")
+        form = md_page.locator(".comment-form")
+        expect(form).to_be_visible(timeout=2000)
+        # Anchored, not page-level: no whole-page label on the form.
+        assert "Comment on the whole page" not in form.inner_text()
+
+    def test_c_inside_the_comment_box_is_typed_not_swallowed(self, md_page: Page):
+        md_page.keyboard.press("c")
+        ta = md_page.locator(".comment-form textarea")
+        expect(ta).to_be_visible(timeout=2000)
+        ta.click()
+        md_page.keyboard.type("cccc")
+        expect(ta).to_have_value("cccc")
+        # Still one form, not four.
+        expect(md_page.locator(".comment-form")).to_have_count(1)
+
+    def test_c_in_vim_search_is_typed_not_swallowed(self, md_page: Page):
+        md_page.keyboard.press("Escape")  # vim mode on
+        md_page.keyboard.press("/")       # search bar takes focus
+        md_page.keyboard.type("cc")
+        expect(md_page.locator("#vim-search-bar input")).to_have_value("cc")
+        expect(md_page.locator(".comment-form")).to_have_count(0)
+
+    def test_c_in_vim_visual_mode_comments_on_the_selection(self, md_page: Page):
+        md_page.keyboard.press("Escape")  # vim mode on
+        md_page.keyboard.press("v")       # select the block under the cursor
+        md_page.keyboard.press("c")
+        form = md_page.locator(".comment-form")
+        expect(form).to_be_visible(timeout=2000)
+        # vim.js handled the key, so the page-level handler stayed out of it.
+        assert "Comment on the whole page" not in form.inner_text()
+        expect(form).to_have_count(1)
+
+
 class TestHideShowComments:
 
     def test_toggle_hides_and_shows_highlights(self, md_page: Page):
@@ -309,3 +426,44 @@ class TestFileActions:
         expect(dir_page.locator(".serve-toast")).to_be_visible(timeout=2000)
         copied = dir_page.evaluate("() => navigator.clipboard.readText()")
         assert copied.startswith("/") and "localhost" not in copied, copied
+
+
+class TestMovedDocumentRecovery:
+    """The document being read moves on disk; the reader must land somewhere
+    they can navigate from, and one click must get them to the new location."""
+
+    def test_live_reload_lands_on_the_recovery_page(
+        self, page: Page, dir_server: ServeServer, dir_tree
+    ):
+        page.goto(f"{dir_server.base_url}/README.md")
+        page.wait_for_load_state("networkidle")
+
+        (dir_tree / "README.md").rename(dir_tree / "sub" / "README.md")
+
+        # The open page has content to swap, but the response no longer does, so
+        # the reload script falls back to a full load of the not-found page.
+        page.wait_for_selector(".serve-nf", timeout=5000)
+        expect(page.locator('.serve-nf a[href="/sub/README.md"]')).to_be_visible()
+        expect(page.locator("#serve-sidebar")).to_be_attached()
+
+        page.click('.serve-nf a[href="/sub/README.md"]')
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("#serve-content")).to_be_attached()
+
+    def test_way_up_finds_a_file_moved_out_of_the_served_folder(
+        self, page: Page, dir_server: ServeServer, dir_tree
+    ):
+        # Moved above the served root, so nothing in the tree can point at it
+        # until the server serves the parent folder.
+        page.goto(f"{dir_server.base_url}/README.md")
+        page.wait_for_load_state("networkidle")
+        (dir_tree / "README.md").rename(dir_tree.parent / "README.md")
+
+        page.wait_for_selector(".serve-nf", timeout=5000)
+        expect(page.locator("#serve-nf-up")).to_be_visible()
+
+        page.click("#serve-nf-up")
+        page.wait_for_selector('.serve-nf a[href="/README.md"]', timeout=5000)
+        page.click('.serve-nf a[href="/README.md"]')
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("#serve-content")).to_be_attached()

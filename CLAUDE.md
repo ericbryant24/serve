@@ -10,7 +10,8 @@ server.go         — net/http server: directory rooting (atomic rootState, re-r
 renderer.go       — goldmark rendering with source line annotations, Chroma syntax highlighting
 templates.go      — html/template page builder (wrapMarkdown, wrapCode, etc.) + inject helpers
 static/page.gohtml — HTML page skeleton (embedded via go:embed)
-static/*.css/js   — Comment UI, vim mode, zoom, sidebar, presentation assets (embedded)
+static/*.css/js   — Comment UI, vim mode, zoom, sidebar, presentation, not-found assets (embedded)
+notfound.go       — Missing-path recovery: move/rename suggestions, nearest existing folder
 comments.go       — Comment model, inode-based store key, JSON persistence (wrapped {path, comments} on disk)
 reports.go        — Report model, directory-per-report store under ~/.serve/reports/
 redact.go         — Path redaction (shape / extension-only) and credential scanning
@@ -25,6 +26,7 @@ instances.go      — Process discovery via ps/lsof (no registry)
 marp.go           — Marp slide deck support
 dataurl.go        — Self-contained data URL generation
 agent_init.go     — Interactive agent integration setup wizard
+notfound_test.go  — Unit tests for suggestion ranking, folder lookup, recovery page
 comments_test.go  — Unit tests for comment store, store key, watcher filter
 templates_test.go — Unit tests for page rendering, XSS escaping, wrap functions
 watch_test.go     — Unit tests for serve watch diff logic
@@ -35,8 +37,10 @@ watch_test.go     — Unit tests for serve watch diff logic
 - **Comment storage**: `~/.serve/comments/<key>.json` — central location, never alongside documents. The key is derived from the file's inode+device number on Unix (so comments survive `mv`/`git mv`), falling back to a path hash on Windows. Source files are never modified.
 - **Store key**: `storeKeyForFile(path)` in `comments.go` — returns `"%x-%x" % (dev, ino)` on Unix via `fi.Sys().(*syscall.Stat_t)`, or `md5(abs_path)[:4]` as fallback.
 - **Source line annotations**: The renderer adds `data-source-lines` attributes to block elements so the browser JS can map text selections back to source line numbers.
+- **Page-level comments**: `scope: "page"` on the POST body stores a comment against the whole document — no anchor text, no source lines (any the caller sends are dropped, so nothing can later mis-anchor). Anchored comments leave `Comment.Scope` empty and `scope` is `omitempty`, so existing stores and `serve watch` consumers see no change. The browser entry points are the speech-bubble launcher (`#comment-page-btn`), always present next to the count badge, and the `c` key with nothing selected. `setupCommentShortcut` in `comment.js` binds `c` on `window`, not `document`, so vim.js's document handler runs first: in visual, cell and caret mode it opens its own anchored form and calls `preventDefault`, which the shortcut honours, and in normal mode nothing is selected so `c` means the page there too. Page-level comments render only in the comment panel, labelled "Whole page", and are deliberately not treated as unanchored (that section is for comments whose anchor text has gone missing).
 - **Frontmatter stripping**: `renderer.go` strips YAML frontmatter before parsing, replacing with blank lines to preserve line numbering.
 - **Rooting**: The server always serves a directory. A directory target is used as-is; a file target roots at its parent and renders that file at `/` (its `openPath`). The root is held in an atomic `rootState` (baseDir, dirName, faviconSeed, openPath) so it can be swapped at runtime without locking every handler. The sidebar's "up" control (`POST /api/reroot`) re-roots one level up, re-bases `openPath`, and restarts the directory watcher. baseDir is symlink-resolved so serving under `/tmp` or `/var` (macOS symlinks) doesn't trip the sandbox check. A catch-all route renders files by type (markdown, HTML, code, PDF, plain text) with a sidebar; state (expand/collapse, visibility, width) persists in localStorage. Comments work per-file via a `?file=` query param, falling back to `openPath` when absent.
+- **Missing paths**: a path that is not on disk renders a page (404 status) instead of `http.Error`'s bare body: the sidebar and file tree, files with that same filename elsewhere under the root — the shape a `mv` leaves behind, ranked by how close they are to the missing path — and a listing of the nearest folder that still exists. `renderNotFound`/`renderDirIndex` in `server.go`, ranking in `notfound.go`, pages in `templates.go`. It also carries a button that clicks the sidebar's re-root control, since a file moved above the root is invisible to the tree until the server serves the parent folder. A directory path renders that folder's listing (200) so folder links go somewhere, and `/` lists the root when there is no default file to open. Raw asset requests (`?raw=1`) keep the plain 404 body: they are `<img>`/`<embed>` fetches, not navigation. None of these pages carry `#serve-content`, which makes the reload script fall back to a full page load: when the file reappears, the page has to be rebuilt as a document page with the comment and vim scripts a document page loads.
 - **Watcher debounce**: Trailing-edge 50ms — coalesces rapid bursts (e.g. Claude Code editing multiple files) into a single reload. Ignores `node_modules`, `__pycache__`, `dist`, `build`, `vendor`, `target`.
 
 ## Reports
@@ -53,7 +57,7 @@ watch_test.go     — Unit tests for serve watch diff logic
 
 When the server is running:
 - `GET /api/comments` — list all comments
-- `POST /api/comments` — create (fields: `text`, `anchor_text`, `block_text`, `source_line_start`, `source_line_end`, `parent_id`)
+- `POST /api/comments` — create (fields: `text`, `anchor_text`, `block_text`, `source_line_start`, `source_line_end`, `parent_id`, `scope`)
 - `PATCH /api/comments/{id}` — update (`text`, `resolved`)
 - `DELETE /api/comments/{id}` — delete (cascades to replies at any depth)
 

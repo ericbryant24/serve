@@ -75,8 +75,11 @@ Point `serve` at a folder and the sidebar handles every file type without a sepa
 | `.pdf` | Embedded viewer |
 | `.txt` / `.log` / other text | Wrapped `<pre>` block |
 | Anything else | Served as a raw static asset |
+| A folder | Listing of what's inside it |
 
 The sidebar persists expand/collapse state across reloads. Drag the right edge to resize. The **↑** button in the header serves the parent directory, so you can climb out of a subfolder without restarting. Drag a file row onto Finder/Explorer (Chromium browsers) and you get a real local copy. Hit **Edit** on markdown, plain text, or `.serveignore` to edit in place; other files open in your normal editor.
+
+A file you have open can be renamed or moved out from under the page: a `git mv`, a refactor that shuffles docs into folders. The page reloads onto a listing that points at where the file probably went (the same filename elsewhere under the root) and shows the contents of the nearest folder that still exists, so you can keep navigating. If it landed above the served folder, one button serves the parent and looks again. Comments are keyed to the file itself rather than its path, so opening it at its new location shows the same thread.
 
 ## Install
 
@@ -117,7 +120,9 @@ serve doc.md --data-url     # copy a self-contained data URL to clipboard
 
 ### Comments
 
-In the browser: select text → click the **Comment** button → type → Ctrl+Enter. Click highlighted text to open the thread; use Reply / Resolve / Delete from the popover.
+In the browser: select text → click the **Comment** button or press `c` → type → Ctrl+Enter. Click highlighted text to open the thread; use Reply / Resolve / Delete from the popover.
+
+For feedback that isn't about one passage — "this needs an intro", "wrong audience" — press `c` with nothing selected, or click the speech-bubble button in the bottom-right corner. Page-level comments anchor to nothing, so they leave no highlight; they live in the comment panel, labelled **Whole page**, and carry `"scope": "page"` in `serve comments` output.
 
 From the CLI:
 
@@ -185,6 +190,9 @@ curl http://localhost:8000/api/comments
 curl -X POST http://localhost:8000/api/comments \
   -H 'Content-Type: application/json' \
   -d '{"text":"...","anchor_text":"...","source_line_start":5,"source_line_end":5}'
+curl -X POST http://localhost:8000/api/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"...","scope":"page"}'          # comment on the whole document
 curl -X PATCH http://localhost:8000/api/comments/<id> \
   -H 'Content-Type: application/json' \
   -d '{"resolved":true}'

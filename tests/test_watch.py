@@ -176,6 +176,25 @@ class TestLiveEvents:
         assert ev["text"] == "brand new"
         assert ev["file"] == str(md_file)
 
+    def test_page_comment_event_carries_scope(self, md_server: ServeServer, md_file: Path, watch_proc):
+        md_server.register_doc_id(_doc_id_for(md_file))
+        wp = watch_proc([str(md_file)])
+        wp.drain_initial(timeout=0.5)
+
+        md_server.post("/api/comments", json={"text": "whole page", "scope": "page"})
+        ev = _wait_for_event(wp, lambda e: e.get("event") == "new_comment")
+        assert ev["scope"] == "page"
+        assert ev["anchor_text"] == ""
+
+    def test_anchored_comment_event_omits_scope(self, md_server: ServeServer, md_file: Path, watch_proc):
+        md_server.register_doc_id(_doc_id_for(md_file))
+        wp = watch_proc([str(md_file)])
+        wp.drain_initial(timeout=0.5)
+
+        make_comment(md_server, text="anchored")
+        ev = _wait_for_event(wp, lambda e: e.get("event") == "new_comment")
+        assert "scope" not in ev
+
     def test_reply_emits_new_reply(self, md_server: ServeServer, md_file: Path, watch_proc):
         md_server.register_doc_id(_doc_id_for(md_file))
         parent = make_comment(md_server, text="parent")

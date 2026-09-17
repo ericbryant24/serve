@@ -98,6 +98,72 @@ class TestPostComment:
         assert parent["id"] in ids
 
 
+class TestPageLevelComment:
+    def test_creates_page_scoped_comment(self, md_server: ServeServer):
+        r = md_server.post(
+            "/api/comments",
+            json={"text": "The whole page needs a summary", "scope": "page"},
+        )
+        assert r.status_code == 200
+        c = r.json()
+        assert c["scope"] == "page"
+        assert c["anchor_text"] == ""
+        assert c["source_line_start"] is None
+        assert c["source_line_end"] is None
+
+    def test_selection_fields_dropped_when_scope_is_page(self, md_server: ServeServer):
+        r = md_server.post(
+            "/api/comments",
+            json={
+                "text": "Page comment",
+                "scope": "page",
+                "anchor_text": "simple markdown",
+                "block_text": "This is a simple markdown document for testing.",
+                "source_line_start": 3,
+                "source_line_end": 3,
+            },
+        )
+        assert r.status_code == 200
+        c = r.json()
+        assert c["anchor_text"] == ""
+        assert c["block_text"] == ""
+        assert c["source_line_start"] is None
+
+    def test_anchored_comment_has_no_scope(self, md_server: ServeServer):
+        c = make_comment(md_server)
+        assert c.get("scope", "") == ""
+
+    def test_unknown_scope_rejected(self, md_server: ServeServer):
+        r = md_server.post(
+            "/api/comments",
+            json={"text": "Bad scope", "scope": "paragraph"},
+        )
+        assert r.status_code == 400
+
+    def test_page_comment_can_be_replied_to_and_resolved(self, md_server: ServeServer):
+        parent = md_server.post(
+            "/api/comments", json={"text": "Page thought", "scope": "page"}
+        ).json()
+        reply = md_server.post(
+            "/api/comments",
+            json={"text": "Agreed", "scope": "page", "parent_id": parent["id"]},
+        )
+        assert reply.status_code == 200
+        assert reply.json()["parent_id"] == parent["id"]
+
+        r = md_server.patch(f"/api/comments/{parent['id']}", json={"resolved": True})
+        assert r.status_code == 200
+        assert r.json()["resolved"] is True
+        assert r.json()["scope"] == "page"
+
+    def test_page_comment_listed_alongside_anchored(self, md_server: ServeServer):
+        make_comment(md_server, text="Anchored")
+        md_server.post("/api/comments", json={"text": "Page", "scope": "page"})
+        comments = md_server.get("/api/comments").json()["comments"]
+        scopes = sorted(c.get("scope", "") for c in comments)
+        assert scopes == ["", "page"]
+
+
 class TestPatchComment:
     def test_update_text(self, md_server: ServeServer):
         c = make_comment(md_server, text="Original")

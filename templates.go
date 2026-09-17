@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"net/url"
+	"path"
 	"strings"
 )
 
@@ -48,6 +50,9 @@ var editJS string
 
 //go:embed static/report.css
 var reportCSS string
+
+//go:embed static/notfound.css
+var notFoundCSS string
 
 // rawHTMLSidebarCSS overrides the sidebar's body offset for documents serve did
 // not render itself. The 20px gutter in sidebar.css is readability padding for
@@ -428,6 +433,120 @@ func wrapFileInfo(title, fileURL string, size int64, opts wrapOptions) string {
 		htmlEscape(title), htmlEscape(ext), formatSize(size),
 		rawURL, htmlEscape(title), rawURL,
 	))
+	return renderPage(data)
+}
+
+// ---------------------------------------------------------------------------
+// Not-found and directory-index pages
+// ---------------------------------------------------------------------------
+
+// None of the pages below carry a #serve-content element, so the reload script
+// falls back to a full page load instead of swapping content in. That is what
+// they want: when the missing file reappears, the page has to be rebuilt as a
+// document page, with the comment and vim scripts a document page loads.
+
+// hrefFor turns a root-relative path into an escaped absolute URL path.
+func hrefFor(rel string) string {
+	u := url.URL{Path: "/" + strings.TrimPrefix(rel, "/")}
+	return htmlEscape(u.String())
+}
+
+const maxListedEntries = 200
+
+// renderListing renders one directory level as a list of links. Directories
+// link to their own index page.
+func renderListing(entries []FileNode) string {
+	if len(entries) == 0 {
+		return `<p class="serve-nf-empty">This folder is empty.</p>`
+	}
+	var b strings.Builder
+	b.WriteString("<ul>")
+	shown := entries
+	if len(shown) > maxListedEntries {
+		shown = shown[:maxListedEntries]
+	}
+	for _, n := range shown {
+		icon, suffix := "&#128196;", ""
+		if n.Type == "dir" {
+			icon, suffix = "&#128193;", "/"
+		}
+		fmt.Fprintf(&b, `<li><span class="serve-nf-icon">%s</span><a href="%s">%s%s</a></li>`,
+			icon, hrefFor(n.Path), htmlEscape(n.Name), suffix)
+	}
+	if rest := len(entries) - len(shown); rest > 0 {
+		fmt.Fprintf(&b, `<li><span class="serve-nf-icon"></span>&hellip;and %d more</li>`, rest)
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
+// dirLabel names a directory for a heading: the served root's own name, with
+// any path below it appended.
+func dirLabel(dirName, relDir string) string {
+	if relDir == "" {
+		return dirName + "/"
+	}
+	return dirName + "/" + relDir + "/"
+}
+
+// wrapNotFound renders the page for a path that is not on disk: where the file
+// probably went, plus the contents of the nearest folder that still exists.
+func wrapNotFound(relPath, dirName string, suggestions []pathSuggestion, listDir string, entries []FileNode, opts wrapOptions) string {
+	opts.extraCSS += "\n" + notFoundCSS
+	data := buildPageData(path.Base(relPath)+" — not found", opts, false)
+
+	var b strings.Builder
+	b.WriteString(`<div class="serve-nf"><h1>Not found</h1>`)
+	fmt.Fprintf(&b, `<p class="serve-nf-path"><code>%s</code> is no longer in <strong>%s</strong> — it was renamed, moved, or deleted.</p>`,
+		htmlEscape(relPath), htmlEscape(dirName))
+
+	if len(suggestions) > 0 {
+		b.WriteString(`<h2>Did it move?</h2><ul>`)
+		for i, s := range suggestions {
+			cls := ""
+			if i == 0 && s.Moved() {
+				cls = ` class="serve-nf-top"`
+			}
+			fmt.Fprintf(&b, `<li%s><a href="%s">%s</a><span class="serve-nf-why">%s</span></li>`,
+				cls, hrefFor(s.Path), htmlEscape(s.Path), htmlEscape(s.Reason))
+		}
+		b.WriteString(`</ul>`)
+		if suggestions[0].Moved() {
+			b.WriteString(`<p class="serve-nf-note">Comments are keyed to the file itself, not its path, so opening it at its new location shows the same thread.</p>`)
+		}
+	}
+
+	fmt.Fprintf(&b, `<h2>In <code>%s</code></h2>`, htmlEscape(dirLabel(dirName, listDir)))
+	b.WriteString(renderListing(entries))
+
+	// A file moved out of the served folder is invisible from here: nothing
+	// above the root is in the tree. Re-rooting one level up widens the search
+	// and lands back on this path, where the move can then be spotted.
+	if opts.sidebar != nil {
+		b.WriteString(`<p class="serve-nf-note">Moved somewhere else entirely? ` +
+			`<button type="button" id="serve-nf-up">Serve the parent folder</button> and look again.</p>` +
+			`<script>(function(){var b=document.getElementById('serve-nf-up');if(!b)return;` +
+			`b.addEventListener('click',function(){var up=document.getElementById('serve-sidebar-up');if(up)up.click();});})();</script>`)
+	}
+	b.WriteString(`</div>`)
+
+	data.Content = template.HTML(b.String())
+	return renderPage(data)
+}
+
+// wrapDirIndex renders a directory as a listing page, so a folder link in a
+// listing or the sidebar goes somewhere.
+func wrapDirIndex(relDir, dirName string, entries []FileNode, opts wrapOptions) string {
+	opts.extraCSS += "\n" + notFoundCSS
+	label := dirLabel(dirName, relDir)
+	data := buildPageData(label, opts, false)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<div class="serve-nf"><h1>%s</h1>`, htmlEscape(label))
+	b.WriteString(renderListing(entries))
+	b.WriteString(`</div>`)
+
+	data.Content = template.HTML(b.String())
 	return renderPage(data)
 }
 

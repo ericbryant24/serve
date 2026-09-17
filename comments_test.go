@@ -36,6 +36,66 @@ func TestAddAndList(t *testing.T) {
 	}
 }
 
+func TestAddPageStoresPageScopeWithoutAnchor(t *testing.T) {
+	s := newTestStore(t)
+	c, err := s.AddPage("about the whole thing", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Scope != ScopePage {
+		t.Fatalf("got scope %q, want %q", c.Scope, ScopePage)
+	}
+	if c.AnchorText != "" || c.BlockText != "" {
+		t.Fatalf("page comment carries anchor data: anchor=%q block=%q", c.AnchorText, c.BlockText)
+	}
+	if c.SourceLineStart != nil || c.SourceLineEnd != nil {
+		t.Fatal("page comment carries source lines")
+	}
+
+	comments, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 1 || comments[0].Scope != ScopePage {
+		t.Fatalf("scope did not round-trip through the store: %+v", comments)
+	}
+}
+
+// An anchored comment must not grow a scope field on disk, so stores stay
+// readable by builds that predate page-level comments.
+func TestAnchoredCommentOmitsScopeOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommentStore("test-doc", dir)
+	if _, err := s.Add("anchored", "anchor", "block", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "test-doc.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "scope") {
+		t.Fatalf("anchored comment wrote a scope field:\n%s", data)
+	}
+}
+
+func TestReplyToPageComment(t *testing.T) {
+	s := newTestStore(t)
+	parent, err := s.AddPage("page thought", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := s.Reply(parent.ID, "agreed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply == nil {
+		t.Fatal("Reply returned nil for an existing page-level comment")
+	}
+	if reply.ParentID == nil || *reply.ParentID != parent.ID {
+		t.Fatalf("reply not threaded under the page comment: %+v", reply)
+	}
+}
+
 func TestUpdate(t *testing.T) {
 	s := newTestStore(t)
 	c, _ := s.Add("original", "", "", nil, nil, nil)

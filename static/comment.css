@@ -90,4 +90,29 @@
     .comment-panel-toggle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     body.serve-comments-hidden mark.comment-highlight, body.serve-comments-hidden mark.comment-highlight.resolved { background: transparent !important; cursor: inherit; pointer-events: none; }
     body.serve-comments-hidden mark.comment-highlight:hover { background: transparent !important; }
-    body.serve-comments-hidden .orphaned-comments { display: none; }
+    body.serve-comments-hidden .orphaned-comments { display: none; }    /* ---- page-level comments ------------------------------------------- */
+    /* Launcher for a comment on the whole document. It owns the bottom-right
+       corner until the count badge appears, then steps up above it. */
+    #comment-page-btn {
+      position: fixed; bottom: 20px; right: 20px;
+      width: 38px; height: 38px;
+      display: flex; align-items: center; justify-content: center;
+      background: #fff; color: #57606a;
+      border: 1px solid #d0d7de; border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      z-index: 2147480011;
+      transition: color 0.15s, border-color 0.15s, bottom 0.2s ease;
+    }
+    #comment-page-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    #comment-page-btn:hover { color: #0078d4; border-color: #0078d4; }
+    body.serve-has-comments #comment-page-btn { bottom: 66px; }
+    /* The editor overlay is a full-screen surface; keep the launcher out of it. */
+    body.serve-editing #comment-page-btn { display: none; }
+    .comment-form .page-scope-label { font-size: 11px; font-weight: 600; color: #0b5cad; margin-bottom: 6px; }
+    .comment-thread.page-level { border-left-color: #0b5cad; }
+    .comment-thread.page-level .page-scope-label { font-size: 11px; font-weight: 600; color: #0b5cad; padding: 8px 14px 0; }
+    .panel-comment-item.page-level .panel-comment-anchor { background: #eef4fd; color: #0b5cad; }
+    .panel-comment-item.page-level.resolved .panel-comment-anchor { background: #f0fdf0; color: #22c55e; }
+    /* Keyboard hint in the empty comment panel. */
+    .comment-panel-body kbd { font-family: "SFMono-Regular", Consolas, Menlo, monospace; font-size: 11px; padding: 1px 5px; border: 1px solid #d8dee4; border-bottom-width: 2px; border-radius: 4px; background: #f6f8fa; color: #24292e; }

@@ -315,6 +315,9 @@ func initialEvent(file string, c Comment) map[string]any {
 		"source_line_end":   c.SourceLineEnd,
 		"parent_id":         c.ParentID,
 	}
+	if c.Scope != "" {
+		ev["scope"] = c.Scope
+	}
 	return ev
 }
 
@@ -343,7 +346,7 @@ func diffSnapshots(prev, next []Comment, file string) []map[string]any {
 		if c.ParentID != nil {
 			eventType = "new_reply"
 		}
-		events = append(events, map[string]any{
+		ev := map[string]any{
 			"event":             eventType,
 			"file":              file,
 			"comment_id":        c.ID,
@@ -353,7 +356,13 @@ func diffSnapshots(prev, next []Comment, file string) []map[string]any {
 			"source_line_start": c.SourceLineStart,
 			"source_line_end":   c.SourceLineEnd,
 			"parent_id":         c.ParentID,
-		})
+		}
+		// Only page-scoped comments carry the field, so the event shape for
+		// anchored comments is unchanged for existing consumers.
+		if c.Scope != "" {
+			ev["scope"] = c.Scope
+		}
+		events = append(events, ev)
 	}
 
 	// Edited / resolved / unresolved: in both, fields differ.

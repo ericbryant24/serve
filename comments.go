@@ -10,12 +10,18 @@ import (
 	"time"
 )
 
+// ScopePage marks a comment as belonging to the document as a whole rather
+// than to a text selection. Anchored comments leave Comment.Scope empty, so
+// stores written before page-level comments existed load unchanged.
+const ScopePage = "page"
+
 // Comment represents an inline comment on a document.
 type Comment struct {
 	ID              string  `json:"id"`
 	Text            string  `json:"text"`
 	CreatedAt       string  `json:"created_at"`
 	Resolved        bool    `json:"resolved"`
+	Scope           string  `json:"scope,omitempty"`
 	AnchorText      string  `json:"anchor_text"`
 	BlockText       string  `json:"block_text"`
 	SourceLineStart *int    `json:"source_line_start"`
@@ -162,22 +168,34 @@ func (s *CommentStore) List() ([]Comment, error) {
 }
 
 func (s *CommentStore) Add(text, anchorText, blockText string, lineStart, lineEnd *int, parentID *string) (*Comment, error) {
+	return s.add(Comment{
+		Text:            text,
+		AnchorText:      anchorText,
+		BlockText:       blockText,
+		SourceLineStart: lineStart,
+		SourceLineEnd:   lineEnd,
+		ParentID:        parentID,
+	})
+}
+
+// AddPage adds a page-level comment: one scoped to the whole document instead
+// of to a text selection. It deliberately carries no anchor text and no source
+// lines, so nothing anchors it into the rendered HTML — it lives in the comment
+// panel and in `serve comments` output.
+func (s *CommentStore) AddPage(text string, parentID *string) (*Comment, error) {
+	return s.add(Comment{Text: text, Scope: ScopePage, ParentID: parentID})
+}
+
+// add stamps an id and creation time onto c and appends it to the store.
+func (s *CommentStore) add(c Comment) (*Comment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	comments, _, err := s.load()
 	if err != nil {
 		return nil, err
 	}
-	c := Comment{
-		ID:              generateFullUUID(),
-		Text:            text,
-		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
-		AnchorText:      anchorText,
-		BlockText:       blockText,
-		SourceLineStart: lineStart,
-		SourceLineEnd:   lineEnd,
-		ParentID:        parentID,
-	}
+	c.ID = generateFullUUID()
+	c.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	comments = append(comments, c)
 	return &c, s.save(comments)
 }

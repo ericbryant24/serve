@@ -400,7 +400,64 @@ func (s *Server) handleDirRoot(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+def, http.StatusFound)
 		return
 	}
-	http.Error(w, "No servable files found in directory.", 404)
+	// No default file to open (a folder of code, say). List the root rather
+	// than dead-ending: the listing is navigable, an error body is not.
+	s.renderDirIndex(w, "")
+}
+
+// renderNotFound serves the page for a path that is not on disk. It keeps the
+// sidebar and adds the likely destinations of a moved file plus a listing of
+// the nearest folder that still exists, so a document that is renamed or moved
+// mid-session leaves the reader somewhere they can navigate from.
+func (s *Server) renderNotFound(w http.ResponseWriter, relPath string) {
+	root := s.root.Load()
+	tree := s.fileTree()
+	opts := wrapOptions{
+		sidebar:     &[2]string{root.dirName, relPath},
+		fileTree:    tree,
+		faviconPath: root.faviconSeed,
+		baseDir:     root.baseDir,
+		showReport:  true,
+	}
+	listDir, entries := nearestExistingDir(tree, relPath)
+	suggestions := findPathSuggestions(tree, relPath)
+	logf("info", "not found", fPath("path", relPath), fInt("suggestions", len(suggestions)))
+	writeHTMLStatus(w, 404, wrapNotFound(relPath, root.dirName, suggestions, listDir, entries, opts))
+}
+
+// renderDirIndex serves a directory as a listing page, so a folder link in a
+// not-found listing goes somewhere.
+func (s *Server) renderDirIndex(w http.ResponseWriter, relPath string) {
+	root := s.root.Load()
+	tree := s.fileTree()
+	relDir := strings.Trim(filepath.ToSlash(filepath.Clean(relPath)), "/")
+	if relDir == "." {
+		relDir = ""
+	}
+	entries, ok := findDirNode(tree, relDir)
+	if !ok {
+		entries = nil
+	}
+	// The trailing slash makes the directory itself an "active ancestor" in
+	// sidebar.js, so the folder being listed shows expanded in the tree.
+	sidebarPath := relDir
+	if sidebarPath != "" {
+		sidebarPath += "/"
+	}
+	opts := wrapOptions{
+		sidebar:     &[2]string{root.dirName, sidebarPath},
+		fileTree:    tree,
+		faviconPath: root.faviconSeed,
+		baseDir:     root.baseDir,
+		showReport:  true,
+	}
+	writeHTMLStatus(w, 200, wrapDirIndex(relDir, root.dirName, entries, opts))
+}
+
+func writeHTMLStatus(w http.ResponseWriter, status int, html string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	fmt.Fprint(w, html)
 }
 
 var embeddableExts = map[string]bool{
@@ -457,8 +514,19 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, relPath stri
 		}
 	}
 	fi, err := os.Stat(fp)
-	if err != nil || fi.IsDir() {
-		http.Error(w, "Not Found", 404)
+	if err != nil {
+		// A raw request is an <img>/<embed>/asset fetch, not navigation, so it
+		// gets a plain 404 rather than a page the browser would try to decode
+		// as an image.
+		if r.URL.Query().Get("raw") == "1" {
+			http.Error(w, "Not Found", 404)
+			return
+		}
+		s.renderNotFound(w, relPath)
+		return
+	}
+	if fi.IsDir() {
+		s.renderDirIndex(w, relPath)
 		return
 	}
 
@@ -584,6 +652,7 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Text            string  `json:"text"`
+		Scope           string  `json:"scope"`
 		AnchorText      string  `json:"anchor_text"`
 		BlockText       string  `json:"block_text"`
 		SourceLineStart *int    `json:"source_line_start"`
@@ -598,13 +667,25 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text is required", 400)
 		return
 	}
+	if body.Scope != "" && body.Scope != ScopePage {
+		http.Error(w, "scope must be omitted or \"page\"", 400)
+		return
+	}
 	store, storeErr := s.getStore(r)
 	if storeErr != nil {
 		http.Error(w, storeErr.Error(), 500)
 		return
 	}
-	comment, err := store.Add(body.Text, body.AnchorText, body.BlockText,
-		body.SourceLineStart, body.SourceLineEnd, body.ParentID)
+	var comment *Comment
+	var err error
+	if body.Scope == ScopePage {
+		// A page-level comment anchors to nothing, so any selection fields the
+		// caller sent are dropped rather than stored and later mis-anchored.
+		comment, err = store.AddPage(body.Text, body.ParentID)
+	} else {
+		comment, err = store.Add(body.Text, body.AnchorText, body.BlockText,
+			body.SourceLineStart, body.SourceLineEnd, body.ParentID)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
