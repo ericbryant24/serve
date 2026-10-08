@@ -1,469 +1,378 @@
-"""
-Browser automation tests using Playwright.
-These test JavaScript behavior that HTTP response tests cannot catch:
-  - Link clicks are not intercepted by the comment UI
-  - Comment button appears on text selection
-  - Submitting a comment creates a highlight in the document
-  - Clicking a highlight opens the thread popover
-  - Resolving a comment via the popover marks the highlight resolved
-
-Run:
-  uv run pytest tests/test_browser.py -v
-
-For a visible browser (useful when debugging):
-  uv run pytest tests/test_browser.py -v --headed --slowmo 300
-"""
+"""The browser app, driven with Playwright against a real server."""
 
 import re
+import struct
+import time
+import zlib
+
 import pytest
 from playwright.sync_api import Page, expect
 
-from conftest import ServeServer, make_comment
+from conftest import leaf_selection
+
+pytestmark = pytest.mark.usefixtures("daemon")
 
 
-# ---------------------------------------------------------------------------
-# Browser-level fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def md_page(page: Page, md_server: ServeServer):
-    """Navigate to the markdown server and wait for the page to settle."""
-    page.goto(f"{md_server.base_url}/")
-    page.wait_for_load_state("networkidle")
+@pytest.fixture()
+def wide(page: Page) -> Page:
+    page.set_viewport_size({"width": 1440, "height": 900})
     return page
 
 
-@pytest.fixture
-def dir_page(page: Page, dir_server: ServeServer):
-    """Navigate to the directory server root and wait for the page to settle."""
-    page.goto(f"{dir_server.base_url}/")
-    page.wait_for_load_state("networkidle")
-    return page
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def select_text_in_first_paragraph(page: Page) -> None:
-    """Programmatically select the first ~15 chars of the first annotated paragraph."""
-    page.evaluate("""
-        () => {
-            // Find the first paragraph with source-line annotation
-            var p = document.querySelector('p[data-source-lines]') || document.querySelector('p');
-            if (!p) return;
-            // Walk to first text node
-            var node = p.firstChild;
-            while (node && node.nodeType !== 3) node = node.nextSibling;
-            if (!node || !node.textContent.trim()) return;
-            var range = document.createRange();
-            range.setStart(node, 0);
-            range.setEnd(node, Math.min(15, node.length));
-            var sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-            // mousedown first (resets the comment button state), then mouseup to show it
-            document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            document.dispatchEvent(new MouseEvent('mouseup',  { bubbles: true }));
-        }
-    """)
-    page.wait_for_timeout(200)  # comment button appears after a 10 ms setTimeout
-
-
-# ---------------------------------------------------------------------------
-# Link behaviour
-# ---------------------------------------------------------------------------
-
-class TestLinkBehavior:
-
-    def test_external_link_is_in_dom(self, md_page: Page):
-        expect(md_page.locator('a[href="https://example.com"]')).to_have_count(1)
-
-    def test_external_link_click_not_prevented_by_js(self, md_page: Page):
-        """Verify that no JS listener calls preventDefault() on the link click."""
-        prevented = md_page.evaluate("""
-            () => {
-                var link = document.querySelector('a[href="https://example.com"]');
-                if (!link) return 'no link';
-                var prevented = null;
-                // Capture phase: fires before any bubble-phase handlers
-                link.addEventListener('click', function(e) {
-                    prevented = e.defaultPrevented;
-                    e.preventDefault();   // stop us from actually navigating away
-                }, { capture: true, once: true });
-                link.click();
-                return prevented;
-            }
-        """)
-        assert prevented is False, (
-            f"External link click was prevented by JavaScript (defaultPrevented={prevented!r})"
-        )
-
-    def test_anchor_link_updates_url_fragment(self, md_page: Page):
-        md_page.click('a[href="#section-two"]')
-        md_page.wait_for_timeout(200)
-        assert "#section-two" in md_page.url
-
-    def test_relative_link_navigates_in_directory_mode(self, page: Page, dir_server: ServeServer):
-        page.goto(f"{dir_server.base_url}/README.md")
-        page.wait_for_load_state("networkidle")
-        page.click('a[href="sub/page.md"]')
-        page.wait_for_url("**/sub/page.md", timeout=5000)
-        expect(page.locator("body")).to_contain_text("Nested Page")
-
-
-# ---------------------------------------------------------------------------
-# Comment UI — basic state
-# ---------------------------------------------------------------------------
-
-class TestCommentUIBasic:
-
-    def test_comment_button_hidden_on_load(self, md_page: Page):
-        expect(md_page.locator("#comment-btn")).not_to_be_visible()
-
-    def test_comment_badge_present_in_dom(self, md_page: Page):
-        expect(md_page.locator("#comment-badge")).to_have_count(1)
-
-    def test_comment_button_appears_after_text_selection(self, md_page: Page):
-        select_text_in_first_paragraph(md_page)
-        expect(md_page.locator("#comment-btn")).to_be_visible(timeout=2000)
-
-    def test_comment_button_hides_when_clicking_elsewhere(self, md_page: Page):
-        select_text_in_first_paragraph(md_page)
-        expect(md_page.locator("#comment-btn")).to_be_visible(timeout=2000)
-        # Click on a blank part of the page (top-left corner is reliably outside the UI)
-        md_page.mouse.click(5, 5)
-        md_page.wait_for_timeout(150)
-        expect(md_page.locator("#comment-btn")).not_to_be_visible()
-
-
-# ---------------------------------------------------------------------------
-# Comment workflow
-# ---------------------------------------------------------------------------
-
-class TestCommentWorkflow:
-
-    def test_submit_comment_creates_highlight(self, md_page: Page):
-        select_text_in_first_paragraph(md_page)
-        md_page.click("#comment-btn")
-        ta = md_page.locator(".comment-form textarea")
-        expect(ta).to_be_visible(timeout=2000)
-        ta.fill("A test comment from Playwright")
-        md_page.keyboard.press("Control+Enter")
-        expect(md_page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
-
-    def test_comment_created_via_api_appears_as_highlight(
-        self, page: Page, md_server: ServeServer
-    ):
-        make_comment(md_server, anchor_text="simple markdown document", text="API comment")
-        page.goto(f"{md_server.base_url}/")
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
-
-    def test_highlight_click_opens_popover(self, page: Page, md_server: ServeServer):
-        make_comment(md_server, anchor_text="simple markdown document", text="Popover text")
-        page.goto(f"{md_server.base_url}/")
-        page.wait_for_load_state("networkidle")
-        highlight = page.locator("mark.comment-highlight").first
-        expect(highlight).to_be_visible(timeout=4000)
-        highlight.click()
-        popover = page.locator(".comment-popover")
-        expect(popover).to_be_visible(timeout=2000)
-        expect(popover).to_contain_text("Popover text")
-
-    def test_resolve_button_marks_highlight_resolved(self, page: Page, md_server: ServeServer):
-        make_comment(md_server, anchor_text="simple markdown document", text="Resolve me")
-        page.goto(f"{md_server.base_url}/")
-        page.wait_for_load_state("networkidle")
-        highlight = page.locator("mark.comment-highlight").first
-        expect(highlight).to_be_visible(timeout=4000)
-        highlight.click()
-        popover = page.locator(".comment-popover")
-        expect(popover).to_be_visible(timeout=2000)
-        resolve_btn = popover.locator("[data-action='resolve']")
-        resolve_btn.click()
-        page.wait_for_timeout(500)
-        expect(page.locator("mark.comment-highlight.resolved")).to_have_count(1, timeout=3000)
-
-    def test_badge_count_updates_after_comment_created(self, md_page: Page):
-        # Initially badge is hidden (no comments)
-        badge = md_page.locator("#comment-badge")
-        initial_style = badge.get_attribute("style") or ""
-        assert "none" in initial_style or not badge.is_visible()
-
-        select_text_in_first_paragraph(md_page)
-        md_page.click("#comment-btn")
-        ta = md_page.locator(".comment-form textarea")
-        expect(ta).to_be_visible(timeout=2000)
-        ta.fill("Badge test comment")
-        md_page.keyboard.press("Control+Enter")
-        # Badge should become visible with a count
-        expect(badge).to_be_visible(timeout=4000)
-
-
-class TestPageLevelComments:
-    def test_launcher_is_always_available(self, md_page: Page):
-        expect(md_page.locator("#comment-page-btn")).to_be_visible()
-
-    def test_creates_page_comment_and_shows_it_in_the_panel(self, md_page: Page):
-        md_page.click("#comment-page-btn")
-        ta = md_page.locator(".comment-form textarea")
-        expect(ta).to_be_visible(timeout=2000)
-        ta.fill("This page needs an intro")
-        md_page.keyboard.press("Control+Enter")
-
-        # No highlight is created — the comment belongs to the whole document.
-        expect(md_page.locator("#comment-badge")).to_be_visible(timeout=4000)
-        expect(md_page.locator("mark.comment-highlight")).to_have_count(0)
-
-        # Submitting opens the panel, where the item is labelled "Whole page".
-        panel = md_page.locator("#comment-panel.open")
-        expect(panel).to_be_visible(timeout=2000)
-        item = panel.locator(".panel-comment-item.page-level")
-        expect(item).to_have_count(1)
-        assert "Whole page" in item.inner_text()
-        assert "This page needs an intro" in item.inner_text()
-
-    def test_page_comment_persists_with_scope(self, md_page: Page, md_server: ServeServer):
-        md_page.click("#comment-page-btn")
-        ta = md_page.locator(".comment-form textarea")
-        expect(ta).to_be_visible(timeout=2000)
-        ta.fill("Scope check")
-        md_page.keyboard.press("Control+Enter")
-        expect(md_page.locator("#comment-badge")).to_be_visible(timeout=4000)
-
-        comments = md_server.get("/api/comments").json()["comments"]
-        assert [c["scope"] for c in comments] == ["page"]
-
-    def test_thread_opens_from_the_panel(self, page: Page, md_server: ServeServer):
-        md_server.post("/api/comments", json={"text": "Page note", "scope": "page"})
-        page.goto(f"{md_server.base_url}/")
-        page.wait_for_load_state("networkidle")
-
-        page.click("#comment-badge")
-        page.click(".panel-comment-item.page-level")
-        popover = page.locator(".comment-popover.page-level, .comment-popover")
-        expect(popover.first).to_be_visible(timeout=3000)
-        assert "Page note" in popover.first.inner_text()
-        # A thread anchored to nothing must still land inside the viewport.
-        box = popover.first.bounding_box()
-        width = page.evaluate("() => window.innerWidth")
-        assert box["x"] >= 0 and box["x"] + box["width"] <= width + 1
-
-    def test_page_comment_is_not_listed_as_unanchored(self, page: Page, md_server: ServeServer):
-        md_server.post("/api/comments", json={"text": "Page note", "scope": "page"})
-        page.goto(f"{md_server.base_url}/")
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("#comment-badge")).to_be_visible(timeout=4000)
-        expect(page.locator(".orphaned-comments")).to_have_count(0)
-
-
-class TestCommentShortcut:
-    """"c" opens a comment form: the whole page when nothing is selected, the
-    selection when there is one."""
-
-    def test_c_opens_a_page_comment_form(self, md_page: Page):
-        md_page.locator("body").click(position={"x": 5, "y": 5})
-        md_page.keyboard.press("c")
-        form = md_page.locator(".comment-form")
-        expect(form).to_be_visible(timeout=2000)
-        assert "Comment on the whole page" in form.inner_text()
-
-    def test_c_creates_a_page_scoped_comment(self, md_page: Page, md_server: ServeServer):
-        md_page.keyboard.press("c")
-        ta = md_page.locator(".comment-form textarea")
-        expect(ta).to_be_visible(timeout=2000)
-        ta.fill("Shortcut page note")
-        md_page.keyboard.press("Control+Enter")
-        expect(md_page.locator("#comment-badge")).to_be_visible(timeout=4000)
-
-        comments = md_server.get("/api/comments").json()["comments"]
-        assert [(c["text"], c["scope"]) for c in comments] == [
-            ("Shortcut page note", "page")
-        ]
-
-    def test_c_comments_on_the_selection_when_there_is_one(self, md_page: Page):
-        select_text_in_first_paragraph(md_page)
-        md_page.keyboard.press("c")
-        form = md_page.locator(".comment-form")
-        expect(form).to_be_visible(timeout=2000)
-        # Anchored, not page-level: no whole-page label on the form.
-        assert "Comment on the whole page" not in form.inner_text()
-
-    def test_c_inside_the_comment_box_is_typed_not_swallowed(self, md_page: Page):
-        md_page.keyboard.press("c")
-        ta = md_page.locator(".comment-form textarea")
-        expect(ta).to_be_visible(timeout=2000)
-        ta.click()
-        md_page.keyboard.type("cccc")
-        expect(ta).to_have_value("cccc")
-        # Still one form, not four.
-        expect(md_page.locator(".comment-form")).to_have_count(1)
-
-    def test_c_in_vim_search_is_typed_not_swallowed(self, md_page: Page):
-        md_page.keyboard.press("Escape")  # vim mode on
-        md_page.keyboard.press("/")       # search bar takes focus
-        md_page.keyboard.type("cc")
-        expect(md_page.locator("#vim-search-bar input")).to_have_value("cc")
-        expect(md_page.locator(".comment-form")).to_have_count(0)
-
-    def test_c_in_vim_visual_mode_comments_on_the_selection(self, md_page: Page):
-        md_page.keyboard.press("Escape")  # vim mode on
-        md_page.keyboard.press("v")       # select the block under the cursor
-        md_page.keyboard.press("c")
-        form = md_page.locator(".comment-form")
-        expect(form).to_be_visible(timeout=2000)
-        # vim.js handled the key, so the page-level handler stayed out of it.
-        assert "Comment on the whole page" not in form.inner_text()
-        expect(form).to_have_count(1)
-
-
-class TestHideShowComments:
-
-    def test_toggle_hides_and_shows_highlights(self, md_page: Page):
-        # Create a comment so a highlight appears.
-        select_text_in_first_paragraph(md_page)
-        md_page.click("#comment-btn")
-        ta = md_page.locator(".comment-form textarea")
-        expect(ta).to_be_visible(timeout=2000)
-        ta.fill("hide/show test")
-        md_page.keyboard.press("Control+Enter")
-        expect(md_page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
-
-        # The hide/show toggle lives in the comment panel header.
-        md_page.click("#comment-badge")
-        toggle = md_page.locator("#comment-hide-toggle")
-        expect(toggle).to_be_visible(timeout=2000)
-
-        # Hide: the mark stays in the DOM but its highlight background is cleared.
-        toggle.click()
-        md_page.wait_for_timeout(100)
-        assert md_page.evaluate(
-            "() => document.body.classList.contains('serve-comments-hidden')"
-        ) is True
-        # pointer-events (no CSS transition, unlike background) is the reliable
-        # signal that the hidden styling took effect.
-        pe = md_page.evaluate(
-            "() => getComputedStyle(document.querySelector('mark.comment-highlight')).pointerEvents"
-        )
-        assert pe == "none", f"highlight not cleared (pointer-events={pe!r})"
-
-        # Show again.
-        toggle.click()
-        md_page.wait_for_timeout(100)
-        assert md_page.evaluate(
-            "() => document.body.classList.contains('serve-comments-hidden')"
-        ) is False
-
-    def test_hidden_state_persists_across_reload(self, page: Page, md_server: ServeServer):
-        make_comment(md_server, anchor_text="simple markdown document", text="persist")
-        page.goto(f"{md_server.base_url}/")
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
-
-        page.click("#comment-badge")
-        page.click("#comment-hide-toggle")
-        page.wait_for_timeout(100)
-        assert page.evaluate(
-            "() => document.body.classList.contains('serve-comments-hidden')"
-        ) is True
-
-        # Reload: the hidden state (localStorage) is applied on load without
-        # reopening the panel.
-        page.reload()
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("mark.comment-highlight")).to_have_count(1, timeout=4000)
-        assert page.evaluate(
-            "() => document.body.classList.contains('serve-comments-hidden')"
-        ) is True
-
-
-class TestFileActions:
-
-    def test_base_dir_exposed(self, dir_page: Page):
-        base = dir_page.evaluate("() => window.__serveBaseDir")
-        assert isinstance(base, str) and base.startswith("/"), base
-
-    def test_drag_carries_local_path_not_localhost(self, dir_page: Page):
-        result = dir_page.evaluate(
-            """() => {
-              const a = document.querySelector('.sidebar-file');
-              const dt = new DataTransfer();
-              a.dispatchEvent(new DragEvent('dragstart', {dataTransfer: dt, bubbles: true, cancelable: true}));
-              return {plain: dt.getData('text/plain'), uri: dt.getData('text/uri-list'), dl: dt.getData('DownloadURL')};
-            }"""
-        )
-        # text/plain must be the local filesystem path, not a localhost URL.
-        assert result["plain"].startswith("/"), result
-        assert "localhost" not in result["plain"], result
-        assert result["uri"].startswith("file://"), result
-        # DownloadURL still points at the raw localhost URL so Finder/desktop
-        # drops materialize a real file.
-        assert "localhost" in result["dl"] and "dl=1" in result["dl"], result
-
-    def test_context_menu_reveal_calls_api(self, dir_page: Page):
-        # Intercept so a real Finder window never opens during the test.
-        dir_page.route(
-            "**/api/reveal**",
-            lambda route: route.fulfill(
-                status=200, content_type="application/json", body='{"ok":true}'
-            ),
-        )
-        dir_page.locator(".sidebar-file.active").click(button="right")
-        menu = dir_page.locator(".serve-context-menu")
-        expect(menu).to_be_visible(timeout=2000)
-        expect(menu).to_contain_text("Copy path")
-        with dir_page.expect_request("**/api/reveal**") as ri:
-            menu.get_by_text("Reveal in Finder").click()
-        assert "path=" in ri.value.url
-
-    def test_context_menu_copy_path(self, dir_page: Page):
-        dir_page.context.grant_permissions(["clipboard-read", "clipboard-write"])
-        dir_page.locator(".sidebar-file.active").click(button="right")
-        menu = dir_page.locator(".serve-context-menu")
-        expect(menu).to_be_visible(timeout=2000)
-        menu.get_by_text("Copy path").click()
-        expect(dir_page.locator(".serve-toast")).to_be_visible(timeout=2000)
-        copied = dir_page.evaluate("() => navigator.clipboard.readText()")
-        assert copied.startswith("/") and "localhost" not in copied, copied
-
-
-class TestMovedDocumentRecovery:
-    """The document being read moves on disk; the reader must land somewhere
-    they can navigate from, and one click must get them to the new location."""
-
-    def test_live_reload_lands_on_the_recovery_page(
-        self, page: Page, dir_server: ServeServer, dir_tree
-    ):
-        page.goto(f"{dir_server.base_url}/README.md")
-        page.wait_for_load_state("networkidle")
-
-        (dir_tree / "README.md").rename(dir_tree / "sub" / "README.md")
-
-        # The open page has content to swap, but the response no longer does, so
-        # the reload script falls back to a full load of the not-found page.
-        page.wait_for_selector(".serve-nf", timeout=5000)
-        expect(page.locator('.serve-nf a[href="/sub/README.md"]')).to_be_visible()
-        expect(page.locator("#serve-sidebar")).to_be_attached()
-
-        page.click('.serve-nf a[href="/sub/README.md"]')
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("#serve-content")).to_be_attached()
-
-    def test_way_up_finds_a_file_moved_out_of_the_served_folder(
-        self, page: Page, dir_server: ServeServer, dir_tree
-    ):
-        # Moved above the served root, so nothing in the tree can point at it
-        # until the server serves the parent folder.
-        page.goto(f"{dir_server.base_url}/README.md")
-        page.wait_for_load_state("networkidle")
-        (dir_tree / "README.md").rename(dir_tree.parent / "README.md")
-
-        page.wait_for_selector(".serve-nf", timeout=5000)
-        expect(page.locator("#serve-nf-up")).to_be_visible()
-
-        page.click("#serve-nf-up")
-        page.wait_for_selector('.serve-nf a[href="/README.md"]', timeout=5000)
-        page.click('.serve-nf a[href="/README.md"]')
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("#serve-content")).to_be_attached()
+def select(page: Page, phrase: str, root=".markdown-body"):
+    page.evaluate(
+        """([root, phrase]) => {
+          const el = document.querySelector(root);
+          const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          let n; const nodes = []; let text = '';
+          while ((n = w.nextNode())) { nodes.push([n, text.length]); text += n.data; }
+          const i = text.indexOf(phrase); if (i < 0) throw new Error('not found: ' + phrase);
+          const at = (off) => { for (const [n, s] of nodes) if (off <= s + n.data.length) return [n, off - s]; };
+          const r = document.createRange(); r.setStart(...at(i)); r.setEnd(...at(i + phrase.length));
+          getSelection().removeAllRanges(); getSelection().addRange(r);
+        }""",
+        [root, phrase],
+    )
+
+
+def post(page: Page, text: str):
+    page.keyboard.type(text)
+    page.keyboard.press("ControlOrMeta+Enter")
+
+
+def open_doc(page: Page, daemon, path):
+    page.goto(daemon.url(path))
+    page.wait_for_selector(".markdown-body h1, .code-view .cl, iframe.frame")
+
+
+def test_renders_markdown_with_margin(wide, daemon, docs):
+    open_doc(wide, daemon, docs / "spec.md")
+    expect(wide.locator(".markdown-body h1")).to_have_text("Payment retry spec")
+    expect(wide.locator(".margin-empty")).to_contain_text("No open comments")
+    expect(wide.locator(".tree-row.current")).to_have_text(re.compile("spec.md"))
+
+
+def test_select_and_comment_then_agent_reply_arrives_live(wide, daemon, docs, cli):
+    spec = docs / "spec.md"
+    open_doc(wide, daemon, spec)
+    select(wide, "up to three times")
+    wide.keyboard.press("c")
+    expect(wide.locator(".thread.draft")).to_be_visible()
+    post(wide, "Why three?")
+    expect(wide.locator("mark.cm")).to_have_text("up to three times")
+    card = wide.locator(".margin .thread").first
+    expect(card).to_contain_text("Why three?")
+    # The card sits level with its highlight.
+    wide.wait_for_timeout(400)
+    mark_top = wide.locator("mark.cm").bounding_box()["y"]
+    card_top = card.bounding_box()["y"]
+    assert abs(card_top - mark_top) < 30
+    tid = cli.json("comments", spec)["threads"][0]["id"]
+    wide.locator("mark.cm").click()
+    cli.run("reply", spec, tid, "Changed to four.", SERVE_AUTHOR="Claude")
+    expect(card).to_contain_text("Changed to four.")
+    expect(card).to_contain_text("Claude")
+    expect(card.locator(".badge")).to_have_text("Your turn")
+
+
+def test_reply_box_stays_open_and_threads_are_flat(wide, daemon, docs, cli):
+    spec = docs / "spec.md"
+    daemon.ok("POST", "threads", {"path": str(spec), "scope": "text", "text": "first", "selection": leaf_selection(daemon, spec, "ACH payments")})
+    open_doc(wide, daemon, spec)
+    wide.locator("mark.cm").click()
+    box = wide.locator(".margin .thread textarea")
+    box.click()
+    post(wide, "second")
+    expect(wide.locator(".margin .thread .message")).to_have_count(2)
+    box.click()
+    post(wide, "third")
+    expect(wide.locator(".margin .thread .message")).to_have_count(3)
+    msgs = cli.json("comments", spec)["threads"][0]["messages"]
+    assert [m["text"] for m in msgs] == ["first", "second", "third"]
+
+
+def test_file_edit_updates_the_page_in_place(wide, daemon, docs):
+    spec = docs / "spec.md"
+    daemon.ok("POST", "threads", {"path": str(spec), "scope": "text", "text": "Why three?", "selection": leaf_selection(daemon, spec, "up to three times")})
+    open_doc(wide, daemon, spec)
+    wide.evaluate("() => { window.__marker = 1; document.querySelector('.markdown-body h1').dataset.kept = 'yes'; }")
+    spec.write_text(spec.read_text().replace("three", "four"))
+    expect(wide.locator("mark.cm")).to_have_text("up to four times")
+    expect(wide.locator(".margin .quote")).to_contain_text("up to three times")
+    assert wide.evaluate("() => window.__marker === 1 && document.querySelector('.markdown-body h1').dataset.kept === 'yes'")
+
+
+def png(w: int, h: int) -> bytes:
+    """A blank PNG of the given size."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = b"".join(b"\x00" + b"\x00\x00\x00" * w for _ in range(h))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+def test_changed_image_updates_the_page(wide, daemon, docs):
+    (docs / "img").mkdir()
+    chart = docs / "img" / "chart.png"
+    chart.write_bytes(png(10, 10))
+    doc = docs / "report.md"
+    doc.write_text("# Report\n\n![chart](img/chart.png)\n\nThe chart above.\n")
+    open_doc(wide, daemon, doc)
+    img = wide.locator(".markdown-body img")
+    expect(img).to_have_js_property("naturalWidth", 10)
+    chart.write_bytes(png(30, 10))
+    expect(img).to_have_js_property("naturalWidth", 30)
+    # A block replaced later still shows the new image, not the cached one.
+    doc.write_text("# Report\n\n![chart, updated](img/chart.png)\n\nThe chart above.\n")
+    expect(wide.locator(".markdown-body img")).to_have_attribute("alt", "chart, updated")
+    expect(wide.locator(".markdown-body img")).to_have_js_property("naturalWidth", 30)
+
+
+def test_changed_image_file_updates_its_view(wide, daemon, docs):
+    pic = docs / "pic.png"
+    pic.write_bytes(png(10, 10))
+    wide.goto(daemon.url(pic))
+    img = wide.locator(".image-view img")
+    expect(img).to_have_js_property("naturalWidth", 10)
+    pic.write_bytes(png(40, 10))
+    expect(img).to_have_js_property("naturalWidth", 40)
+
+
+def test_changed_stylesheet_reloads_an_html_page(wide, daemon, docs):
+    (docs / "style.css").write_text("h1 { color: rgb(255, 0, 0); }")
+    page = docs / "styled.html"
+    page.write_text('<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><h1>Styled</h1></body></html>')
+    wide.goto(daemon.url(page))
+    h1 = wide.frame_locator("iframe.frame").locator("h1")
+    expect(h1).to_have_css("color", "rgb(255, 0, 0)")
+    (docs / "style.css").write_text("h1 { color: rgb(0, 0, 255); }")
+    expect(h1).to_have_css("color", "rgb(0, 0, 255)")
+
+
+def tree_view(page: Page) -> dict:
+    """The tree's scroll position, and whether the current file's row is in view."""
+    return page.evaluate(
+        """() => {
+          const tree = document.querySelector('.sidebar .tree');
+          const row = tree.querySelector('.tree-row.current');
+          const r = row.getBoundingClientRect(), t = tree.getBoundingClientRect();
+          return { scroll: tree.scrollTop, visible: r.top >= t.top && r.bottom <= t.bottom };
+        }"""
+    )
+
+
+def test_tree_keeps_the_current_file_in_view(wide, daemon, docs):
+    deep = docs / "zz" / "deep"
+    deep.mkdir(parents=True)
+    for i in range(60):
+        (deep / f"f{i:02}.md").write_text(f"# File {i}\n")
+    open_doc(wide, daemon, deep / "f59.md")
+    expect(wide.locator(".tree-row.current")).to_have_text(re.compile("f59.md"))
+    first = tree_view(wide)
+    assert first["visible"] and first["scroll"] > 0
+    # Following a row in the tree opens a new page with the tree where it was.
+    wide.locator(".tree-row", has_text="f50.md").click()
+    expect(wide.locator(".tree-row.current")).to_have_text(re.compile("f50.md"))
+    second = tree_view(wide)
+    assert second["visible"] and abs(second["scroll"] - first["scroll"]) <= 1
+
+
+def test_comment_mode_and_page_comments(wide, daemon, docs, cli):
+    spec = docs / "spec.md"
+    open_doc(wide, daemon, spec)
+    wide.keyboard.press("c")
+    expect(wide.locator(".mode-bar")).to_be_visible()
+    li = wide.locator(".markdown-body li", has_text="Who owns the dunning emails?")
+    li.hover()
+    expect(wide.locator(".pick-box")).to_be_visible()
+    li.click()
+    post(wide, "Finance owns these.")
+    expect(wide.locator(".cm-el")).to_have_count(1)
+    wide.locator(".mode-bar button", has_text="Whole page").click()
+    post(wide, "Needs a rollout section.")
+    expect(wide.locator(".margin .quote-page")).to_be_visible()
+    wide.keyboard.press("Escape")
+    wide.keyboard.press("Escape")
+    expect(wide.locator(".mode-bar")).to_have_count(0)
+    scopes = sorted(t["scope"] for t in cli.json("comments", spec)["threads"])
+    assert scopes == ["element", "page"]
+
+
+def test_resolve_with_undo(wide, daemon, docs, cli):
+    spec = docs / "spec.md"
+    daemon.ok("POST", "threads", {"path": str(spec), "scope": "page", "text": "Overall fine"})
+    open_doc(wide, daemon, spec)
+    wide.locator(".margin .thread .resolve").click()
+    expect(wide.locator(".margin .thread")).to_have_count(0)
+    wide.locator(".toast-action", has_text="Undo").click()
+    expect(wide.locator(".margin .thread")).to_have_count(1)
+    time.sleep(4)
+    assert cli.json("comments", spec)["threads"][0]["status"] == "open"
+    wide.locator(".margin .thread .resolve").click()
+    time.sleep(4.2)
+    assert cli.json("comments", spec)["threads"] == []
+
+
+def test_links_to_threads(wide, daemon, docs):
+    spec = docs / "spec.md"
+    t = daemon.ok("POST", "threads", {"path": str(spec), "scope": "text", "text": "linked", "selection": leaf_selection(daemon, spec, "skip weekends")})
+    wide.goto(daemon.url(spec) + "#thread-" + t["id"])
+    expect(wide.locator(".margin .thread.active")).to_contain_text("linked")
+
+
+def test_narrow_window_uses_the_panel(page: Page, daemon, docs):
+    spec = docs / "spec.md"
+    daemon.ok("POST", "threads", {"path": str(spec), "scope": "page", "text": "Overall"})
+    page.set_viewport_size({"width": 1000, "height": 800})
+    open_doc(page, daemon, spec)
+    expect(page.locator(".margin")).to_have_count(0)
+    page.locator(".threads-btn").click()
+    expect(page.locator(".panel .thread")).to_contain_text("Overall")
+
+
+def test_code_file_comment(wide, daemon, docs):
+    go = docs / "sub" / "main.go"
+    open_doc(wide, daemon, go)
+    select(wide, "Println", ".code-view")
+    wide.keyboard.press("c")
+    post(wide, "Use a logger.")
+    expect(wide.locator("mark.cm")).to_have_text("Println")
+
+
+def test_html_page_runs_in_an_isolated_frame(wide, daemon, docs, cli):
+    page_html = docs / "page.html"
+    open_doc(wide, daemon, page_html)
+    frame = wide.frame_locator("iframe.frame")
+    frame.locator("#buy").click()
+    expect(frame.locator("#o")).to_have_text("clicked")
+    child = [f for f in wide.frames if f != wide.main_frame][0]
+    assert child.evaluate("async () => { try { await fetch('%s/_serve/api/home'); return 'reached'; } catch { return 'blocked'; } }" % daemon.base) == "blocked"
+    child.evaluate("() => { const b = document.querySelector('p b'); const r = document.createRange(); r.selectNodeContents(b); getSelection().removeAllRanges(); getSelection().addRange(r); }")
+    frame.locator("body").press("c")
+    expect(wide.locator(".panel .thread.draft")).to_be_visible()
+    post(wide, "Monthly or yearly?")
+    expect(frame.locator("mark.serve-cm")).to_have_text("$10")
+    assert cli.json("comments", page_html)["threads"][0]["anchor_text"] == "$10"
+
+
+def test_editor_saves_and_merges_a_change_on_disk(wide, daemon, docs):
+    spec = docs / "spec.md"
+    open_doc(wide, daemon, spec)
+    wide.locator("button", has_text="Edit").click()
+    wide.wait_for_selector(".cm-content")
+    wide.locator(".cm-content").click()
+    wide.keyboard.press("ControlOrMeta+End")
+    wide.keyboard.type("\nFrom the browser.\n")
+    spec.write_text(spec.read_text().replace("# Payment retry spec", "# Payment retry spec (v2)"))
+    time.sleep(0.5)
+    wide.keyboard.press("ControlOrMeta+s")
+    expect(wide.locator(".modal h2")).to_have_text("This file changed on disk")
+    wide.locator(".modal button", has_text="Merge both").click()
+    expect(wide.locator(".toast", has_text="Merged")).to_be_visible()
+    wide.keyboard.press("ControlOrMeta+s")
+    expect(wide.locator(".toast", has_text="Saved")).to_be_visible()
+    text = spec.read_text()
+    assert "(v2)" in text and "From the browser." in text
+    # Escape never throws the edit away.
+    wide.keyboard.type("unsaved")
+    wide.keyboard.press("Escape")
+    expect(wide.locator(".cm-editor")).to_be_visible()
+
+
+def test_file_tree_filter_and_counts(wide, daemon, docs):
+    spec = docs / "spec.md"
+    daemon.ok("POST", "threads", {"path": str(spec), "scope": "page", "text": "x"})
+    open_doc(wide, daemon, docs / "notes.txt")
+    expect(wide.locator(".tree-row", has_text="spec.md").locator(".count")).to_have_text("1")
+    wide.keyboard.press("/")
+    wide.keyboard.type("main")
+    expect(wide.locator(".results .tree-row")).to_have_text(re.compile("sub/main.go"))
+    wide.keyboard.press("Enter")
+    wide.wait_for_url(re.compile("main.go$"))
+
+
+def test_file_tree_can_start_at_a_folder_inside_the_opened_one(wide, daemon, docs):
+    open_doc(wide, daemon, docs / "sub" / "main.go")
+    head = wide.locator(".sidebar-root")
+    expect(head).to_have_text("docs")
+    wide.locator(".tree-row.dir", has_text="sub").click(button="right")
+    wide.locator(".menu.context button", has_text="Start the file tree here").click()
+    expect(head).to_have_text("sub")
+    expect(wide.locator(".tree > ul > li > .tree-row")).to_have_text([re.compile("main.go")])
+    # The choice holds across pages in the folder, but not outside it.
+    wide.reload()
+    expect(head).to_have_text("sub")
+    open_doc(wide, daemon, docs / "spec.md")
+    expect(head).to_have_text("docs")
+    # ↑ moves the tree back up without opening anything new.
+    open_doc(wide, daemon, docs / "sub" / "main.go")
+    wide.locator("button[aria-label='Show the folder above']").click()
+    expect(head).to_have_text("docs")
+    expect(wide.locator("button[aria-label='Open the folder above']")).to_be_visible()
+    wide.reload()
+    expect(head).to_have_text("docs")
+    assert [f["path"] for f in daemon.ok("GET", "home")["folders"]] == [str(docs)]
+
+
+def test_dark_theme_and_help(wide, daemon, docs):
+    open_doc(wide, daemon, docs / "spec.md")
+    wide.locator("button[aria-label='View options']").click()
+    wide.locator(".view-menu button", has_text="Dark").click()
+    assert wide.evaluate("() => document.documentElement.dataset.theme") == "dark"
+    bg = wide.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    assert bg == "rgb(13, 17, 23)"
+    wide.keyboard.press("Escape")
+    wide.keyboard.press("?")
+    expect(wide.locator(".modal.help")).to_contain_text("Next comment")
+
+
+def test_start_page_lists_threads_waiting_for_you(wide, daemon, docs, cli):
+    spec = docs / "spec.md"
+    t = daemon.ok("POST", "threads", {"path": str(spec), "scope": "page", "text": "Overall?"})
+    cli.run("reply", spec, t["id"], "Looks fine to me.")
+    wide.goto(daemon.base + "/")
+    expect(wide.locator(".inbox")).to_contain_text("Looks fine to me.")
+    expect(wide.locator(".folders")).to_contain_text("docs")
+
+
+def test_clicking_line_numbers_comments_on_lines(wide, daemon, docs, cli):
+    go = docs / "sub" / "main.go"
+    open_doc(wide, daemon, go)
+    rows = wide.locator(".code-view .cl")
+    rows.nth(4).click(position={"x": 10, "y": 8})
+    rows.nth(5).click(position={"x": 10, "y": 8}, modifiers=["Shift"])
+    expect(wide.locator(".thread.draft")).to_be_visible()
+    post(wide, "These two lines")
+    th = cli.json("comments", go)["threads"][0]
+    assert (th["source_line_start"], th["source_line_end"]) == (5, 6)
+
+
+def test_embedded_in_another_apps_frame(wide, daemon, docs, cli, tmp_path):
+    import http.server, threading, functools
+    from conftest import free_port
+
+    host_dir = tmp_path / "host"
+    host_dir.mkdir()
+    (host_dir / "index.html").write_text(f'<html><body><iframe id="f" style="width:560px;height:760px" src="{daemon.url(docs / "spec.md")}?embed=1"></iframe></body></html>')
+    port = free_port()
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(host_dir)))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        wide.goto(f"http://localhost:{port}/index.html")
+        frame = wide.frame_locator("#f")
+        expect(frame.locator(".markdown-body h1")).to_have_text("Payment retry spec")
+        expect(frame.locator(".topbar")).to_have_count(0)
+        expect(frame.locator(".sidebar")).to_have_count(0)
+        expect(frame.locator(".embed-bar")).to_be_visible()
+        child = [f for f in wide.frames if f != wide.main_frame][0]
+        frame.locator(".markdown-body h1").click()  # focus the frame, as a person would
+        child.evaluate("""() => { const p = [...document.querySelectorAll('.markdown-body p')].find(p => p.textContent.includes('ACH')); const t = p.firstChild; const i = t.data.indexOf('ACH payments'); const r = document.createRange(); r.setStart(t, i); r.setEnd(t, i + 12); getSelection().removeAllRanges(); getSelection().addRange(r); }""")
+        wide.keyboard.press("c")
+        expect(frame.locator(".thread.draft textarea")).to_be_focused()
+        frame.locator(".thread.draft textarea").type("From the threads desk")
+        frame.locator(".thread.draft textarea").press("ControlOrMeta+Enter")
+        expect(frame.locator("mark.cm")).to_have_text("ACH payments")
+        assert cli.json("comments", docs / "spec.md")["threads"][0]["text"] == "From the threads desk"
+    finally:
+        srv.shutdown()

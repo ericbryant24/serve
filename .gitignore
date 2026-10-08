@@ -16,3 +16,9 @@ tests/.venv
 
 # Playwright MCP logs
 .playwright-mcp/
+
+# Frontend dependencies (the built bundle in web/dist is committed)
+web/node_modules/
+# ...but the browser app's bundler and built bundle are source here
+!web/build/
+!web/dist/

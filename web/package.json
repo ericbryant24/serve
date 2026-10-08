@@ -1,0 +1,21 @@
+{
+  "name": "serve-web",
+  "private": true,
+  "description": "serve's browser app. Built into dist/ by `go generate ./web`; dist/ is committed so building serve needs no Node.",
+  "scripts": {
+    "check": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.8.0",
+    "@codemirror/lang-markdown": "^6.3.0",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/search": "^6.5.0",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.36.0",
+    "mermaid": "^11.4.0",
+    "preact": "^10.26.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
