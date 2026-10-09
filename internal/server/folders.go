@@ -57,6 +57,18 @@ func (f *folderSet) rootFor(p string) (string, bool) {
 	return "", false
 }
 
+// narrowest returns the deepest opened folder containing p.
+func (f *folderSet) narrowest(p string) (string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.list) - 1; i >= 0; i-- {
+		if paths.Within(p, f.list[i]) {
+			return f.list[i], true
+		}
+	}
+	return "", false
+}
+
 func (f *folderSet) add(p string) error {
 	if err := f.st.AddFolder(p); err != nil {
 		return err

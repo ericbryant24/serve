@@ -160,6 +160,48 @@ func TestPagesOnlyServeOpenedFolders(t *testing.T) {
 	}
 }
 
+// With a folder above several projects open, each project still gets its own
+// tab icon: the icon follows the git repository a page is in, else the
+// narrowest opened folder holding it.
+func TestTabIconFollowsTheProject(t *testing.T) {
+	e := setup(t)
+	page := func(dir string) string {
+		p := filepath.Join(dir, "docs", "x.md")
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte("# X\n"), 0o644)
+		return p
+	}
+	a, b, plain := filepath.Join(e.dir, "a"), filepath.Join(e.dir, "b"), filepath.Join(e.dir, "plain")
+	os.MkdirAll(filepath.Join(a, ".git"), 0o755)
+	os.MkdirAll(b, 0o755)
+	os.WriteFile(filepath.Join(b, ".git"), []byte("gitdir: elsewhere\n"), 0o644) // a worktree
+	icon := func(p string) string {
+		w := e.do(e.app, req{path: paths.URLPath(p), token: "-"})
+		_, rest, ok := strings.Cut(w.Body.String(), `<link rel="icon" href="`)
+		if w.Code != 200 || !ok {
+			t.Fatalf("%s: %d, no icon", p, w.Code)
+		}
+		href, _, _ := strings.Cut(rest, `"`)
+		return href
+	}
+	inA, inB := icon(page(a)), icon(page(b))
+	if inA != icon(a) {
+		t.Error("a project's folder and its files have different icons")
+	}
+	if inA != favicon(a) || inB != favicon(b) {
+		t.Error("the icon is not the project's")
+	}
+	if icon(page(plain)) != favicon(e.dir) {
+		t.Error("outside any repository, the icon is not the opened folder's")
+	}
+	if err := e.s.folders.add(plain); err != nil {
+		t.Fatal(err)
+	}
+	if icon(page(plain)) != favicon(plain) {
+		t.Error("the narrowest opened folder does not pick the icon")
+	}
+}
+
 func TestContentPortNeverServesTheAppOrTheAPI(t *testing.T) {
 	e := setup(t)
 	for _, p := range []string{"/_serve/api/home", "/_serve/events", "/_serve/assets/app.js"} {

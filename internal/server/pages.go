@@ -509,11 +509,9 @@ func (s *Server) writePage(w http.ResponseWriter, status int, d *pageData, title
 	if d.Role == "guest" {
 		token = s.shareToken
 	}
-	icon := ""
+	icon := favicon("serve")
 	if d.Root != nil {
-		icon = favicon(d.Root.Path)
-	} else {
-		icon = favicon("serve")
+		icon = favicon(s.iconFolder(d.Path, d.Root.Path))
 	}
 	var b strings.Builder
 	b.WriteString("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
@@ -541,8 +539,28 @@ func (s *Server) writePage(w http.ResponseWriter, status int, d *pageData, title
 var faviconEmojis = []string{"📘", "📕", "📗", "📙", "📓", "📝", "📋", "📄", "📃", "📜", "📰", "📚", "📖", "📔", "🔬", "🧪", "🧬", "🔭", "💡", "🎨", "🌈", "🔥", "💧", "🌱", "🚀", "🛸", "🌍", "🌊", "🌋", "🎲", "🎯", "🎮", "🦁", "🦅", "🦉", "🐙", "🦋"}
 var faviconColors = []string{"#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "#606c38", "#283618", "#dda15e", "#bc6c25", "#6d6875", "#b5838d", "#e5989b", "#457b9d", "#1d3557", "#a8dadc", "#2b2d42", "#8d99ae", "#ef233c"}
 
-// favicon gives each opened folder its own tab icon, so tabs from different
-// folders are told apart at a glance.
+// iconFolder is the folder a page's tab icon is picked for: the git
+// repository the path is in, or else the narrowest opened folder holding it.
+// The root is no good for this, since it is the widest opened folder: with
+// ~/Projects open, every project would share one icon.
+func (s *Server) iconFolder(p, root string) string {
+	if p == "" {
+		return root
+	}
+	home := paths.Abs(paths.Home())
+	for d := p; d != home && filepath.Dir(d) != d; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return d
+		}
+	}
+	if f, ok := s.folders.narrowest(p); ok {
+		return f
+	}
+	return root
+}
+
+// favicon gives each project its own tab icon, so tabs from different
+// projects are told apart at a glance.
 func favicon(seed string) string {
 	h := md5.Sum([]byte(seed))
 	n := int(h[0])<<8 | int(h[1])
