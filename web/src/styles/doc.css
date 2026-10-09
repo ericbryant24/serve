@@ -208,7 +208,8 @@ details.frontmatter th { text-align: left; font-family: var(--mono); font-weight
 mark.cm { background: var(--hl); color: inherit; border-radius: 2px; box-shadow: 0 1.5px 0 var(--hl-line); cursor: pointer; transition: background 0.12s; }
 mark.cm:hover, mark.cm.cm-hover { background: var(--hl-active); }
 mark.cm.cm-active { background: var(--hl-active); box-shadow: 0 2px 0 var(--hl-line); }
-mark.cm.cm-resolved { background: var(--hl-resolved); box-shadow: none; }
+mark.cm.cm-resolved { background: none; box-shadow: none; text-decoration: underline dotted var(--success); text-underline-offset: 3px; }
+mark.cm.cm-resolved:hover, mark.cm.cm-resolved.cm-hover, mark.cm.cm-resolved.cm-active { background: var(--hl-resolved); }
 mark.cm.cm-changed { box-shadow: 0 1.5px 0 var(--hl-line); text-decoration: underline dotted var(--hl-line); text-underline-offset: 3px; }
 mark.cm.cm-draft { background: var(--hl-draft); box-shadow: none; }
 mark.cm mark.cm { background: var(--hl-active); }

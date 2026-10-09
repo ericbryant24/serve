@@ -176,7 +176,8 @@ export function ThreadCard({ t, active, hovered, compact }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const resolved = t.status === 'resolved';
-  const expanded = active || !compact;
+  // A resolved thread shows one line until it is picked, in the panel too.
+  const expanded = active || (!compact && !resolved);
   const msgs = t.messages;
   let shown: Message[] = msgs;
   let hidden = 0;

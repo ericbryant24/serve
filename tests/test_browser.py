@@ -231,6 +231,34 @@ def test_narrow_window_uses_the_panel(page: Page, daemon, docs):
     expect(page.locator(".panel .thread")).to_contain_text("Overall")
 
 
+def test_resolved_threads_go_below_open_ones(page: Page, daemon, docs):
+    spec = docs / "spec.md"
+    done = daemon.ok("POST", "threads", {"path": str(spec), "scope": "text", "text": "Why three?", "selection": leaf_selection(daemon, spec, "up to three times")})
+    daemon.ok("POST", "threads", {"path": str(spec), "scope": "text", "text": "Ask finance", "selection": leaf_selection(daemon, spec, "skip weekends")})
+    daemon.ok("PATCH", f"threads/{done['id']}", {"status": "resolved"})
+    page.add_init_script("localStorage.setItem('serve-prefs', JSON.stringify({showResolved: true}))")
+
+    # In the margin, the resolved thread sits below the open one, although its
+    # text comes first, and it is faded until picked.
+    page.set_viewport_size({"width": 1440, "height": 900})
+    open_doc(page, daemon, spec)
+    resolved, still_open = page.locator(".margin .thread.resolved"), page.locator(".margin .thread:not(.resolved)")
+    expect(resolved).to_contain_text("Why three?")
+    page.wait_for_timeout(300)
+    assert resolved.bounding_box()["y"] > still_open.bounding_box()["y"]
+    assert float(resolved.evaluate("e => getComputedStyle(e).opacity")) < 0.7
+    page.locator("mark.cm-resolved").click()
+    expect(page.locator(".margin .thread.resolved.active")).to_be_visible()
+
+    # In the panel, open threads come first, then the resolved ones under a divider.
+    page.set_viewport_size({"width": 1000, "height": 800})
+    open_doc(page, daemon, spec)
+    page.locator(".threads-btn").click()
+    expect(page.locator(".panel .thread").first).to_contain_text("Ask finance")
+    expect(page.locator(".panel .thread").last).to_contain_text("Why three?")
+    expect(page.locator(".panel-divider")).to_have_text("Resolved · 1")
+
+
 def test_code_file_comment(wide, daemon, docs):
     go = docs / "sub" / "main.go"
     open_doc(wide, daemon, go)

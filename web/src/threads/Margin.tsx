@@ -63,8 +63,10 @@ export function Margin() {
   const path = useStore((s) => s.page.path!);
   const col = useRef<HTMLDivElement>(null);
   const vis = visibleThreads(getState());
-  const top = vis.filter((t) => !anchored(t));
-  const flow = vis.filter(anchored);
+  // A resolved thread goes below the open ones, unless it is the one in focus.
+  const atEnd = (t: Thread) => t.status === 'resolved' && t.id !== active;
+  const top = vis.filter((t) => !anchored(t) && !atEnd(t));
+  const flow = vis.filter((t) => anchored(t) || atEnd(t));
 
   const layout = () => {
     const root = refs.root, page = refs.page, c = col.current;
@@ -74,11 +76,12 @@ export function Margin() {
     const colTop = c.getBoundingClientRect().top;
     const pageTop = page.getBoundingClientRect().top;
     const cards = Array.from(c.querySelectorAll(':scope > .thread-slot')) as HTMLElement[];
-    type Item = { el: HTMLElement; want: number; h: number; id: string };
+    type Item = { el: HTMLElement; want: number; h: number; id: string; atEnd: boolean };
     const items: Item[] = [];
     let fixed = 0;
     for (const el of cards) {
       const id = el.dataset.thread!;
+      const atEnd = el.classList.contains('resolved-slot');
       let want: number | null;
       if (id === '__draft') want = (getState().draft?.top ?? 0) + pageTop - colTop;
       else if (el.classList.contains('unanchored')) want = null;
@@ -86,16 +89,18 @@ export function Margin() {
         const r = root.querySelector(`[data-thread="${CSS.escape(id)}"], [data-cm-el~="${CSS.escape(id)}"]`);
         want = r ? r.getBoundingClientRect().top - colTop : null;
       }
-      if (want === null) {
+      if (want === null && !atEnd) {
         // Page comments and ones that could not be placed stack at the top.
         el.style.top = fixed + 'px';
         el.style.opacity = '1';
         fixed += el.offsetHeight + GAP;
         continue;
       }
-      items.push({ el, want, h: el.offsetHeight, id });
+      items.push({ el, want: want ?? 0, h: el.offsetHeight, id, atEnd });
     }
-    items.sort((a, b) => a.want - b.want);
+    // Open threads first, in document order, then the resolved ones, so a
+    // resolved thread never pushes an open one down.
+    items.sort((a, b) => Number(a.atEnd) - Number(b.atEnd) || a.want - b.want);
     const pos = items.map((i) => Math.max(i.want, 0));
     const focus = items.findIndex((i) => i.id === (getState().draft ? '__draft' : getState().active));
     const start = Math.max(fixed, 0);
@@ -164,7 +169,7 @@ export function Margin() {
         </div>
       ))}
       {flow.map((t) => (
-        <div class="thread-slot" key={t.id} data-thread={t.id} style={{ opacity: 0 }}>
+        <div class={'thread-slot' + (atEnd(t) ? ' resolved-slot' : '')} key={t.id} data-thread={t.id} style={{ opacity: 0 }}>
           <ThreadCard t={t} active={t.id === active} hovered={t.id === hover} compact />
         </div>
       ))}
@@ -189,8 +194,8 @@ function EmptyHint({ resolved, showResolved }: { resolved: number; showResolved:
   );
 }
 
-// Panel lists every thread in document order, for narrow windows and for
-// pages shown in a frame.
+// Panel lists every thread in document order, open ones first and resolved
+// ones after them, for narrow windows and for pages shown in a frame.
 export function Panel({ onPick }: { onPick?: (id: string) => void }) {
   const threads = useStore((s) => s.threads);
   const active = useStore((s) => s.active);
@@ -201,7 +206,14 @@ export function Panel({ onPick }: { onPick?: (id: string) => void }) {
   const vis = visibleThreads(getState());
   const order = (t: Thread) => (t.scope === 'page' ? -1 : t.location.line_start ?? 1e9);
   const sorted = [...vis].sort((a, b) => order(a) - order(b));
+  const open = sorted.filter((t) => t.status === 'open');
+  const resolved = sorted.filter((t) => t.status !== 'open');
   const hiddenResolved = threads.length - vis.length;
+  const card = (t: Thread) => (
+    <div key={t.id} onClick={() => onPick?.(t.id)}>
+      <ThreadCard t={t} active={t.id === active} hovered={t.id === hover} />
+    </div>
+  );
   return (
     <aside class="panel" aria-label="Comments">
       <div class="panel-head">
@@ -212,11 +224,9 @@ export function Panel({ onPick }: { onPick?: (id: string) => void }) {
       </div>
       <div class="panel-body">
         {draft && <DraftCard draft={draft} path={path} />}
-        {sorted.map((t) => (
-          <div key={t.id} onClick={() => onPick?.(t.id)}>
-            <ThreadCard t={t} active={t.id === active} hovered={t.id === hover} />
-          </div>
-        ))}
+        {open.map(card)}
+        {resolved.length > 0 && <div class="panel-divider">Resolved · {resolved.length}</div>}
+        {resolved.map(card)}
         {!sorted.length && !draft && <EmptyHint resolved={hiddenResolved} showResolved={showResolved} />}
         {hiddenResolved > 0 && showResolved === false && sorted.length > 0 && (
           <button type="button" class="link" onClick={() => setState((s) => ({ prefs: { ...s.prefs, showResolved: true } }))}>

@@ -122,8 +122,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 }
 .thread.hovered { border-color: var(--hl-line); }
 .thread.active { box-shadow: var(--shadow-lg); border-color: var(--border); transform: translateX(-6px); }
-.thread.resolved { opacity: 0.75; }
-.thread.resolved.active { opacity: 1; }
+.thread.resolved { opacity: 0.55; background: transparent; border-color: var(--border-muted); box-shadow: none; padding: 6px 10px; }
+.thread.resolved .thread-head { margin-bottom: 2px; }
+.thread.resolved .quote { border-left-color: var(--border); }
+.thread.resolved.hovered { opacity: 0.85; }
+.thread.resolved.active { opacity: 1; background: var(--bg); border-color: var(--border); padding: 10px 12px; }
 .thread.awaiting-you { border-left: 3px solid var(--warn); }
 .panel .thread { margin-bottom: 10px; }
 .panel .thread.active { transform: none; }
@@ -178,6 +181,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .panel-head { display: flex; align-items: center; padding: 10px 12px 6px; }
 .panel-head h2 { font-size: 14px; margin: 0; flex: 1; }
 .panel-body { overflow: auto; padding: 4px 12px 40px; flex: 1; }
+.panel-divider { font-size: 11px; color: var(--faint); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin: 18px 0 8px; padding-top: 10px; border-top: 1px solid var(--border-muted); }
 
 /* --- embedded in another app's frame ---------------------------------------------- */
 

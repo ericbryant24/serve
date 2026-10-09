@@ -44,7 +44,7 @@ serve only shows folders you have opened. The file tree starts at the widest ope
 
 ![Comment mode in the dark theme: the table cell under the pointer is outlined and labelled](docs/images/comment-mode-dark.png)
 
-Threads sit in the margin beside their highlights. Each has a reply box that stays open, author names (you, or the agent), and **Resolve**. Resolved threads leave the page; **Show resolved comments** in the ⋯ menu brings them back. Deleting and resolving can be undone from the notice that appears.
+Threads sit in the margin beside their highlights. Each has a reply box that stays open, author names (you, or the agent), and **Resolve**. Resolved threads leave the page; **Show resolved comments** in the ⋯ menu brings them back, faded and listed below the open ones, with a dotted underline on their text. Clicking one opens it beside its text. Deleting and resolving can be undone from the notice that appears.
 
 When the text a comment was made on is rewritten, the comment stays on the new text and shows what it used to say (~~up to three times~~ → up to four times). When the text is deleted, a marker shows where it was.
 

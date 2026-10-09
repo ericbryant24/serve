@@ -80,7 +80,8 @@
   style.textContent = `
 mark.serve-cm{background:rgba(255,212,0,.32);color:inherit;border-radius:2px;cursor:pointer;box-shadow:0 1px 0 rgba(212,167,44,.8)}
 mark.serve-cm.serve-active{background:rgba(255,191,0,.6)}
-mark.serve-cm.serve-resolved{background:rgba(46,160,67,.16);box-shadow:none}
+mark.serve-cm.serve-resolved{background:none;box-shadow:none;text-decoration:underline dotted rgba(46,160,67,.8);text-underline-offset:3px}
+mark.serve-cm.serve-resolved:hover,mark.serve-cm.serve-resolved.serve-active{background:rgba(46,160,67,.16)}
 mark.serve-cm.serve-changed{box-shadow:0 1px 0 rgba(191,135,0,.9);text-decoration:underline dotted rgba(191,135,0,.9)}
 .serve-el{outline:2px solid rgba(212,167,44,.85)!important;outline-offset:2px}
 .serve-el.serve-active{outline-color:#bf8700!important}
