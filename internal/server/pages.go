@@ -491,9 +491,10 @@ func toAPIThread(v comments.ThreadView) apiThread {
 // --- the shell --------------------------------------------------------------------------
 
 // frameAncestors lets apps on this machine (the threads desk, say) show
-// serve in a frame, and stops any other site from framing it to trick a
-// click.
-const frameAncestors = "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
+// serve in a frame, by port or by a *.localhost name (threads.localhost,
+// through a local proxy), and stops any other site from framing it to trick
+// a click. Browsers send *.localhost only to this machine.
+const frameAncestors = "frame-ancestors 'self' http://localhost:* http://127.0.0.1:* http://*.localhost:*"
 
 var themeBoot = `(function(){try{var t=localStorage.getItem('serve-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`
 

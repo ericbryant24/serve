@@ -150,4 +150,5 @@ def test_only_this_machines_apps_may_frame_serve(daemon, docs):
     r = httpx.get(daemon.url(docs / "spec.md") + "?embed=1", headers={"Accept": "text/html"})
     csp = r.headers["content-security-policy"]
     assert "frame-ancestors 'self' http://localhost:*" in csp and "https:" not in csp
+    assert "http://*.localhost:*" in csp
     assert '"embedded":true' in r.text
