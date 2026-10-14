@@ -2,6 +2,7 @@
 // open after sending. New messages arriving from an agent appear in place
 // without disturbing anything being typed.
 
+import { Icon } from '../design/icons';
 import { Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Threads } from '../api';
@@ -101,16 +102,24 @@ function Quote({ t }: { t: T }) {
   return <div class="quote">{clip(orig, 140)}</div>;
 }
 
-function Author({ m }: { m: Message }) {
+function initials(name: string): string {
+  const words = name.split(/[\s._-]+/).filter(Boolean);
+  return ((words[0]?.[0] || '?') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+}
+
+function Author({ m, children }: { m: Message; children?: any }) {
   const kind = m.author.kind || 'unknown';
   const me = kind === 'human' && m.author.name === getState().page.user;
   const name = me ? 'You' : m.author.name || 'Unknown';
   return (
-    <span class={'author author-' + kind} title={kind === 'agent' ? 'Agent' : m.author.name}>
-      <span class="avatar" aria-hidden="true">
-        {kind === 'agent' ? '✦' : (m.author.name || '?').slice(0, 1).toUpperCase()}
+    <span class={'author author-' + kind}>
+      <span class={'avatar sm' + (kind === 'agent' ? ' agent' : '')} aria-hidden="true">
+        {kind === 'agent' ? <Icon name="agent" size={12} /> : initials(m.author.name || '?')}
       </span>
-      {name}
+      <span class="author-name" title={kind === 'agent' ? 'Agent' : m.author.name}>
+        {name}
+        {children}
+      </span>
     </span>
   );
 }
@@ -125,14 +134,15 @@ function MessageView({ t, m, onEdit, editing }: { t: T; m: Message; onEdit: (id:
   return (
     <div class="message">
       <div class="message-head">
-        <Author m={m} />
-        <time dateTime={m.created_at} title={fullDate(m.created_at)}>
-          {timeAgo(m.created_at)}
-          {m.edited_at ? ' · edited' : ''}
-        </time>
+        <Author m={m}>
+          <time dateTime={m.created_at} title={fullDate(m.created_at)}>
+            {timeAgo(m.created_at)}
+            {m.edited_at ? ' · edited' : ''}
+          </time>
+        </Author>
         <div class="menu-wrap">
-          <button type="button" class="icon ghost" aria-label="Message actions" onClick={(e) => (e.stopPropagation(), setMenu(!menu))}>
-            ⋯
+          <button type="button" class="icon small" aria-label="Message actions" onClick={(e) => (e.stopPropagation(), setMenu(!menu))}>
+            <Icon name="more" size={14} />
           </button>
           {menu && (
             <div class="menu" onMouseLeave={() => setMenu(false)}>
@@ -201,7 +211,7 @@ export function ThreadCard({ t, active, hovered, compact }: Props) {
       <div class="thread-head">
         <Quote t={t} />
         <div class="thread-actions">
-          {t.awaiting === 'human' && !resolved && <span class="badge">Your turn</span>}
+          {t.awaiting === 'human' && !resolved && <span class="status attn">Your turn</span>}
           <button
             type="button"
             class={'icon resolve' + (resolved ? ' on' : '')}
@@ -209,7 +219,7 @@ export function ThreadCard({ t, active, hovered, compact }: Props) {
             aria-label={resolved ? 'Reopen' : 'Resolve'}
             onClick={(e) => (e.stopPropagation(), resolveThread(t))}
           >
-            ✓
+            <Icon name="check" size={14} />
           </button>
         </div>
       </div>

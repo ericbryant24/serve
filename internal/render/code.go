@@ -1,15 +1,12 @@
 package render
 
 import (
-	"bytes"
 	stdhtml "html"
 	"strconv"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
-	"github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
 
 	"serve/internal/anchor"
 )
@@ -126,61 +123,4 @@ func splitHighlighted(source string, l chroma.Lexer) []string {
 		return splitHighlighted(source, nil)
 	}
 	return out
-}
-
-// ChromaCSS is the syntax-highlighting stylesheet for both themes: GitHub's
-// light colours by default, GitHub dark under the dark theme.
-func ChromaCSS() string {
-	light := chromaStyleCSS("github")
-	dark := chromaStyleCSS("github-dark")
-	// Under the dark theme every token first loses the light colours, so a
-	// class the dark style leaves out does not keep a dark-on-dark colour.
-	const reset = ".chroma span { color: inherit; background-color: transparent; font-weight: inherit; font-style: inherit; text-decoration: none }\n"
-	var b strings.Builder
-	b.WriteString(light)
-	b.WriteString("\n")
-	b.WriteString(scopeCSS(reset+dark, `:root[data-theme="dark"] `))
-	b.WriteString("\n@media (prefers-color-scheme: dark) {\n")
-	b.WriteString(scopeCSS(reset+dark, `:root:not([data-theme="light"]) `))
-	b.WriteString("}\n")
-	return b.String()
-}
-
-func chromaStyleCSS(name string) string {
-	st := styles.Get(name)
-	if st == nil {
-		st = styles.Fallback
-	}
-	var buf bytes.Buffer
-	_ = html.New(html.WithClasses(true)).WriteCSS(&buf, st)
-	// Backgrounds come from the page's own theme variables.
-	var keep []string
-	for _, line := range strings.Split(buf.String(), "\n") {
-		if strings.Contains(line, ".bg ") || strings.HasPrefix(strings.TrimSpace(line), "/* Background */") || strings.Contains(line, "/* PreWrapper */") {
-			continue
-		}
-		keep = append(keep, line)
-	}
-	return strings.Join(keep, "\n")
-}
-
-// scopeCSS prefixes every rule's selector with scope.
-func scopeCSS(css, scope string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(css, "\n") {
-		if i := strings.Index(line, "{"); i > 0 {
-			sel := line[:i]
-			if c := strings.Index(sel, "*/"); c >= 0 {
-				sel = sel[c+2:]
-			}
-			parts := strings.Split(sel, ",")
-			for j, p := range parts {
-				parts[j] = scope + strings.TrimSpace(p)
-			}
-			b.WriteString(strings.Join(parts, ", ") + " " + line[i:] + "\n")
-			continue
-		}
-		b.WriteString(line + "\n")
-	}
-	return b.String()
 }

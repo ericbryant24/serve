@@ -30,7 +30,6 @@ import (
 	"serve/internal/daemon"
 	"serve/internal/logx"
 	"serve/internal/paths"
-	"serve/internal/render"
 	"serve/internal/reports"
 	"serve/internal/store"
 )
@@ -290,12 +289,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if name == "chroma.css" {
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		_, _ = w.Write([]byte(chromaCSS()))
-		return
-	}
 	data, ok := s.opt.Assets.Open(name)
 	if !ok {
 		http.NotFound(w, r)
@@ -308,14 +301,6 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	_, _ = w.Write(data)
-}
-
-var chromaOnce sync.Once
-var chromaText string
-
-func chromaCSS() string {
-	chromaOnce.Do(func() { chromaText = render.ChromaCSS() })
-	return chromaText
 }
 
 func contentType(name string) string {

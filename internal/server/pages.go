@@ -496,8 +496,6 @@ func toAPIThread(v comments.ThreadView) apiThread {
 // a click. Browsers send *.localhost only to this machine.
 const frameAncestors = "frame-ancestors 'self' http://localhost:* http://127.0.0.1:* http://*.localhost:*"
 
-var themeBoot = `(function(){try{var t=localStorage.getItem('serve-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`
-
 func (s *Server) writePage(w http.ResponseWriter, status int, d *pageData, title string) {
 	data, err := json.Marshal(d)
 	if err != nil {
@@ -519,9 +517,7 @@ func (s *Server) writePage(w http.ResponseWriter, status int, d *pageData, title
 	b.WriteString("<title>" + stdhtml.EscapeString(title) + "</title>\n")
 	b.WriteString(`<meta name="serve-token" content="` + token + `">` + "\n")
 	b.WriteString(`<link rel="icon" href="` + icon + `">` + "\n")
-	b.WriteString("<script>" + themeBoot + "</script>\n")
 	b.WriteString(`<link rel="stylesheet" href="/_serve/assets/app.css?v=` + v + `">` + "\n")
-	b.WriteString(`<link rel="stylesheet" href="/_serve/assets/chroma.css?v=` + v + `">` + "\n")
 	b.WriteString("</head>\n<body>\n<div id=\"app\"></div>\n")
 	b.WriteString(`<script id="serve-data" type="application/json">`)
 	b.Write(data)

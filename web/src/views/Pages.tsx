@@ -1,6 +1,7 @@
 // The pages that are not a document: the start page, a folder, a missing
 // file, a folder that is not open in serve, and plain messages.
 
+import { Icon } from '../design/icons';
 import { useEffect, useState } from 'preact/hooks';
 import { useStore } from '../state';
 import { Docs } from '../api';
@@ -16,9 +17,8 @@ function Listing({ entries }: { entries: Entry[] }) {
       {entries.map((e) => (
         <li key={e.path}>
           <a href={e.url} class={e.dir ? 'dir' : 'file'}>
-            <span class={e.dir ? 'ficon ficon-dir' : 'ficon ficon-file'} aria-hidden="true" />
+            <Icon name={e.dir ? 'folder' : 'file'} />
             {e.name}
-            {e.dir ? '/' : ''}
           </a>
           {!!e.threads && <span class="count">{plural(e.threads, 'comment')}</span>}
         </li>
@@ -35,7 +35,10 @@ export function DirView() {
       <Listing entries={page.entries || []} />
       {page.readme?.html && (
         <section class="readme">
-          <div class="readme-title">{page.readme.title}</div>
+          <div class="readme-title">
+            <Icon name="file-text" />
+            {page.readme.title}
+          </div>
           <article class="markdown-body" dangerouslySetInnerHTML={{ __html: page.readme.html }} />
         </section>
       )}
@@ -133,10 +136,15 @@ export function HomeView() {
             {home.inbox.map((i) => (
               <li key={i.thread_id}>
                 <a href={i.url + '#thread-' + i.thread_id}>
-                  <div class="inbox-doc">{i.display}</div>
+                  <div class="inbox-doc">
+                    <Icon name="file-text" size={14} />
+                    {i.display}
+                  </div>
                   {i.quote && <div class="quote">{clip(i.quote, 100)}</div>}
                   <div class="inbox-last">
-                    <strong>{i.last.author.name}</strong> {clip(i.last.text, 160)} <span class="muted">· {timeAgo(i.last.created_at)}</span>
+                    <span class="who">{i.last.author.name}</span>
+                    <span class="text">{clip(i.last.text, 160)}</span>
+                    <span class="row-age">{timeAgo(i.last.created_at)}</span>
                   </div>
                 </a>
               </li>
@@ -152,10 +160,12 @@ export function HomeView() {
           <ul class="recent">
             {home.recent.map((d) => (
               <li key={d.path}>
-                <a href={d.url}>{d.name}</a>
-                <span class="muted path">{d.display}</span>
-                {d.open > 0 && <span class="count">{plural(d.open, 'open comment')}</span>}
-                {d.awaiting > 0 && <span class="badge">{d.awaiting} for you</span>}
+                <a href={d.url}>
+                  <Icon name="file-text" />
+                  {d.name}
+                </a>
+                <span class="path">{d.display}</span>
+                {d.awaiting > 0 ? <span class="status attn">{d.awaiting} for you</span> : d.open > 0 && <span class="count">{plural(d.open, 'open comment')}</span>}
               </li>
             ))}
           </ul>
@@ -171,9 +181,12 @@ export function HomeView() {
           <ul class="folders">
             {home.folders.map((f) => (
               <li key={f.path} class={f.exists ? '' : 'missing'}>
-                <a href={f.url}>{f.name}</a>
-                <span class="muted path">{f.display}</span>
-                <span class="muted">{timeAgo(f.used)}</span>
+                <a href={f.url}>
+                  <Icon name="folder" />
+                  {f.name}
+                </a>
+                <span class="path">{f.display}</span>
+                <span class="row-age">{timeAgo(f.used)}</span>
                 <button type="button" class="link" onClick={() => forget(f.path)} title="Stop serving this folder">
                   Forget
                 </button>

@@ -1,0 +1,34 @@
+/* Copied from personal-design-system/desk by scripts/sync. Edit it there. */
+/* The variable names serve and threads used before Desk, pointed at Desk
+   tokens, so their remaining layout rules pick up the new look. Delete a line
+   once nothing in the app uses that name. */
+
+:root {
+  --bg-subtle: var(--bg-sidebar);
+  --bg-muted: var(--bg-selected);
+  --muted: var(--fg-2);
+  --faint: var(--fg-3);
+  --border: var(--line-strong);
+  --border-muted: var(--line);
+  --accent-bg: var(--accent-tint);
+  --danger-bg: var(--danger-tint);
+  --success: var(--accent-text);
+  --success-bg: var(--accent-tint);
+  --warn: var(--attn);
+  --warn-bg: var(--attn-tint);
+  --you: var(--attn);
+  --you-bg: var(--attn-tint);
+  --you-line: var(--line-strong);
+  --hl: var(--mark);
+  --hl-line: var(--mark-line);
+  --hl-active: var(--mark-strong);
+  --hl-resolved: var(--mark-resolved);
+  --hl-draft: var(--accent-tint);
+  --changed-bg: var(--added-tint);
+  --removed-bg: var(--removed-tint);
+  --shadow: var(--shadow-pop);
+  --shadow-lg: var(--shadow-dialog);
+  --sans: var(--font);
+  --mono: var(--font-mono);
+  --radius: var(--r);
+}

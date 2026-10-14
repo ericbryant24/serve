@@ -115,7 +115,7 @@ func standalonePage(read func(string) (*render.Doc, error), p string) (string, e
 	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1">`)
 	b.WriteString("<title>" + stdhtml.EscapeString(title) + "</title>\n<style>\n")
 	b.Write(css)
-	b.WriteString("\n" + render.ChromaCSS() + "\n</style>\n")
+	b.WriteString("\n</style>\n")
 	if doc.HasMermaid {
 		b.WriteString(`<script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true});</script>` + "\n")
 	}

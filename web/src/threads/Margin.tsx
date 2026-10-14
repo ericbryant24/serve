@@ -4,6 +4,7 @@
 // narrow window, and on pages shown in a frame, the same threads are a panel
 // instead.
 
+import { Icon } from '../design/icons';
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import { Threads } from '../api';
 import { getState, setState, useStore, visibleThreads } from '../state';
@@ -218,8 +219,8 @@ export function Panel({ onPick }: { onPick?: (id: string) => void }) {
     <aside class="panel" aria-label="Comments">
       <div class="panel-head">
         <h2>Comments</h2>
-        <button type="button" class="icon ghost" aria-label="Close" onClick={() => setState({ panel: false })}>
-          ×
+        <button type="button" class="icon" aria-label="Close" onClick={() => setState({ panel: false })}>
+          <Icon name="x" />
         </button>
       </div>
       <div class="panel-body">

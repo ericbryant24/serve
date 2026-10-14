@@ -355,13 +355,6 @@ func TestHTMLFileBodyText(t *testing.T) {
 	}
 }
 
-func TestChromaCSSHasBothThemes(t *testing.T) {
-	css := ChromaCSS()
-	if !strings.Contains(css, `:root[data-theme="dark"] .chroma`) || !strings.Contains(css, "prefers-color-scheme: dark") {
-		t.Fatalf("missing dark theme rules")
-	}
-}
-
 func TestRefsListsWhatThePageLoads(t *testing.T) {
 	page := `<p><img src="img/a.png" alt=""> <a href="other.md">link</a></p>
 <picture><source srcset="b.webp 1x, c.webp 2x"><img src="img/a.png"></picture>

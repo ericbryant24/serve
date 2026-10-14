@@ -11,7 +11,8 @@ import { installKeys } from './keys';
 import { installCommands } from './commands';
 import { connect } from './live';
 import { Toasts } from './ui';
-import { TopBar, applyTheme } from './shell/TopBar';
+import { TopBar } from './shell/TopBar';
+import { Icon } from './design/icons';
 import { Sidebar } from './shell/Sidebar';
 import { DocView, refs, relayout, scrollToThread } from './doc/DocView';
 import { FrameView } from './doc/FrameView';
@@ -94,15 +95,15 @@ function EmbedBar() {
   return (
     <div class="embed-bar">
       <button type="button" class={'comment-btn' + (commenting ? ' on' : '')} title="Comment (c)" onMouseDown={(e) => e.preventDefault()} onClick={() => startComment()}>
-        <span class="i-comment" aria-hidden="true" /> Comment
+        <Icon name="comment" size={14} /> Comment
       </button>
       {narrow && (
         <button type="button" class={'ghost threads-btn' + (panel ? ' on' : '')} onClick={() => setState({ panel: !panel })}>
           {open} open
         </button>
       )}
-      <a class="button ghost" href={url} target="_blank" rel="noopener" title="Open in serve">
-        ↗
+      <a class="button icon" href={url} target="_blank" rel="noopener" title="Open in serve" aria-label="Open in serve">
+        <Icon name="external" />
       </a>
     </div>
   );
@@ -123,7 +124,7 @@ function App() {
     refs.scroller = scroller.current;
     const measure = () => {
       const s = getState();
-      const avail = innerWidth - (s.page.root && s.prefs.sidebar && !s.page.embedded ? 270 : 0);
+      const avail = innerWidth - (s.page.root && s.prefs.sidebar && !s.page.embedded ? 260 : 0);
       const n = avail < 1060;
       if (n !== s.narrow) setState({ narrow: n });
     };
@@ -151,9 +152,10 @@ function App() {
   const style = { '--doc-max': WIDTHS[prefs.width], '--text-scale': prefs.textSize / 100 } as any;
   return (
     <div class={'app view-' + view + (root && prefs.sidebar && !embedded ? ' with-sidebar' : '') + (showPanel ? ' with-panel' : '') + (framed ? ' framed' : '') + (embedded ? ' embedded' : '')} style={style}>
-      {!embedded && <TopBar />}
       <div class="app-body">
         {root && prefs.sidebar && !embedded && <Sidebar />}
+        <div class="main-col">
+        {!embedded && <TopBar />}
         <main class="main" ref={scroller} onScroll={relayout}>
           {embedded && view === 'doc' && <EmbedBar />}
           <GoneBanner />
@@ -165,6 +167,7 @@ function App() {
           {view === 'message' && <MessageView />}
           {view === 'home' && <HomeView />}
         </main>
+        </div>
         {showPanel && <Panel />}
       </div>
       <ModeBar />
@@ -178,7 +181,6 @@ function App() {
 function boot() {
   const page = readPageData();
   initState(page);
-  applyTheme(getState().prefs.theme);
   installKeys();
   installCommands();
   render(<App />, document.getElementById('app')!);

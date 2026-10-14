@@ -5,8 +5,8 @@ import { errorToast, toast } from '../ui';
 import { timeAgo, fullDate, copyText, plural } from '../util';
 import { startComment } from '../commands';
 import { toggleSidebar } from './Sidebar';
-import { rerenderDiagrams } from '../doc/mermaid';
-import { refs } from '../doc/DocView';
+import { Icon } from '../design/icons';
+import serveMark from '../design/marks/serve.svg';
 import type { Crumb } from '../types';
 
 function Breadcrumb({ crumbs: all }: { crumbs: Crumb[] }) {
@@ -36,16 +36,6 @@ function Breadcrumb({ crumbs: all }: { crumbs: Crumb[] }) {
   );
 }
 
-export function applyTheme(theme: string) {
-  const el = document.documentElement;
-  if (theme === 'light' || theme === 'dark') el.setAttribute('data-theme', theme);
-  else el.removeAttribute('data-theme');
-  try {
-    localStorage.setItem('serve-theme', theme);
-  } catch {}
-  if (refs.root) rerenderDiagrams(refs.root);
-}
-
 function ViewMenu({ close }: { close: () => void }) {
   const prefs = useStore((s) => s.prefs);
   const page = useStore((s) => s.page);
@@ -67,7 +57,7 @@ function ViewMenu({ close }: { close: () => void }) {
       {doc && (doc.kind === 'markdown' || doc.kind === 'code' || doc.kind === 'text') && (
         <>
           <div class="menu-label">Width</div>
-          <div class="seg">
+          <div class="seg full">
             {(['narrow', 'medium', 'wide', 'full'] as const).map((w) => (
               <button type="button" class={prefs.width === w ? 'on' : ''} onClick={() => setPrefs({ width: w })}>
                 {w[0].toUpperCase() + w.slice(1)}
@@ -75,7 +65,7 @@ function ViewMenu({ close }: { close: () => void }) {
             ))}
           </div>
           <div class="menu-label">Text size</div>
-          <div class="seg">
+          <div class="seg full">
             <button type="button" onClick={() => setPrefs({ textSize: Math.max(80, prefs.textSize - 10) })} aria-label="Smaller">
               A−
             </button>
@@ -88,21 +78,6 @@ function ViewMenu({ close }: { close: () => void }) {
           </div>
         </>
       )}
-      <div class="menu-label">Theme</div>
-      <div class="seg">
-        {(['system', 'light', 'dark'] as const).map((t) => (
-          <button
-            type="button"
-            class={prefs.theme === t ? 'on' : ''}
-            onClick={() => {
-              setPrefs({ theme: t });
-              applyTheme(t);
-            }}
-          >
-            {t[0].toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
       <div class="menu-sep" />
       {doc && (
         <>
@@ -167,15 +142,26 @@ export function TopBar() {
   const yours = open.filter((t) => t.awaiting === 'human').length;
   const framed = doc && doc.kind !== 'markdown' && doc.kind !== 'code' && doc.kind !== 'text';
   return (
-    <header class="topbar">
+    <header class="topbar col-head">
       {page.root && (
-        <button type="button" class="icon ghost" title="Toggle the file tree" aria-label="Toggle the file tree" onClick={toggleSidebar}>
-          <span class="i-sidebar" aria-hidden="true" />
+        <button type="button" class="icon" title="Toggle the file tree" aria-label="Toggle the file tree" onClick={toggleSidebar}>
+          <Icon name="sidebar" />
         </button>
       )}
-      {page.view === 'home' ? <span class="brand">serve</span> : page.crumbs && <Breadcrumb crumbs={page.crumbs} />}
-      <div class="spacer" />
-      {!connected && <span class="offline" title="Reconnecting to serve…">Offline</span>}
+      {page.view === 'home' ? (
+        <span class="brand">
+          <span class="appmark" dangerouslySetInnerHTML={{ __html: serveMark }} />
+          serve
+        </span>
+      ) : (
+        page.crumbs && <Breadcrumb crumbs={page.crumbs} />
+      )}
+      <span class="grow" />
+      {!connected && (
+        <span class="status attn" title="Reconnecting to serve…">
+          Offline
+        </span>
+      )}
       {doc?.modified && (
         <span class="meta" title={'Modified ' + fullDate(doc.modified)}>
           Edited {timeAgo(doc.modified)}
@@ -195,6 +181,7 @@ export function TopBar() {
           )}
           {doc.editable && page.role === 'owner' && (
             <button type="button" class="ghost" onClick={() => setState({ editing: true })}>
+              <Icon name="pencil" size={14} />
               Edit
             </button>
           )}
@@ -206,19 +193,19 @@ export function TopBar() {
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => startComment()}
           >
-            <span class="i-comment" aria-hidden="true" /> Comment
+            <Icon name="comment" size={14} /> Comment
           </button>
           {(narrow || framed) && (
             <button type="button" class={'ghost threads-btn' + (panel ? ' on' : '')} onClick={() => setState({ panel: !panel })} title="Show comments">
               {plural(open.length, 'comment')}
-              {yours > 0 && <span class="dot" title={plural(yours, 'thread') + ' waiting for you'} />}
+              {yours > 0 && <span class="dot attn" title={plural(yours, 'thread') + ' waiting for you'} />}
             </button>
           )}
         </>
       )}
       <div class="menu-wrap">
-        <button type="button" class="icon ghost" aria-label="View options" aria-expanded={menu} onClick={() => setMenu(!menu)}>
-          ⋯
+        <button type="button" class="icon" aria-label="View options" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+          <Icon name="more" />
         </button>
         {menu && <ViewMenu close={() => setMenu(false)} />}
       </div>

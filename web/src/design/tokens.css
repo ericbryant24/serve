@@ -1,0 +1,116 @@
+/* Copied from personal-design-system/desk by scripts/sync. Edit it there. */
+/* Desk tokens: every color, size, space, corner, shadow and timing the apps
+   use. Light only. Components read these; apps should not need literals. */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces. Neutrals lean very slightly warm-green, toward the accent. */
+  --bg: #ffffff;
+  --bg-sidebar: #f5f5f3;
+  --bg-hover: #ededeb;
+  --bg-selected: #e5e5e2;
+  --bg-sunken: #f5f5f3;
+  --line: #e8e8e5;
+  --line-strong: #d6d6d2;
+
+  /* Text. fg-3 is the lightest grey that still reads at small sizes (4.5:1);
+     fg-4 is for placeholders and disabled text only. */
+  --fg: #1d1d1b;
+  --fg-2: #62625d;
+  --fg-3: #767671;
+  --fg-4: #a8a8a2;
+
+  /* Accent: the primary action, selection, focus and on-switches. Also means
+     "done" when a status needs a good color. */
+  --accent: #1f7a57;
+  --accent-hover: #1a6a4b;
+  --accent-pressed: #165b40;
+  --accent-text: #176446;
+  --accent-tint: #e8f2ed;
+  --accent-fg: #ffffff;
+  --focus-ring: rgba(31, 122, 87, 0.28);
+
+  /* Attention: something is waiting on you. Nothing else is orange. */
+  --attn: #b35c00;
+  --attn-tint: #fcf0e1;
+
+  /* Danger: failed, destructive, errors. */
+  --danger: #c0352b;
+  --danger-tint: #fcebe9;
+
+  /* Comment highlights in documents. */
+  --mark: #fdeaa6;
+  --mark-strong: #fbdc6e;
+  --mark-line: #e2b41f;
+  --mark-resolved: #e8f2ed;
+
+  /* Changed text in documents. */
+  --added-tint: #e8f2ed;
+  --removed-tint: #fcebe9;
+
+  --selection: rgba(31, 122, 87, 0.18);
+  --scrim: rgba(29, 29, 27, 0.28);
+  --toast-bg: #2b2b29;
+  --toast-accent: #9fe0c1;
+
+  /* Type. Four UI sizes and a document scale, nothing else. */
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --text-sm: 11.5px;
+  --text-body: 13px;
+  --text-title: 15px;
+  --text-page: 22px;
+  --doc-size: 15px;
+  --doc-h1: 28px;
+  --doc-h2: 20px;
+  --doc-h3: 17px;
+  --code-size: 12.5px;
+  --leading: 1.45;
+  --doc-leading: 1.65;
+  --weight-medium: 500;
+  --weight-strong: 600;
+
+  /* Space: a 4px grid. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+  --s10: 40px;
+
+  /* Sizes. Every column header is --head tall; rows and controls are --control. */
+  --head: 52px;
+  --control: 28px;
+  --control-sm: 24px;
+  --sidebar-width: 232px;
+  --measure: 68ch;
+  --doc-width: 720px;
+
+  /* Corners. */
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 10px;
+  --r-full: 999px;
+
+  /* Borders for things in place, shadows for things that float. */
+  --shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-dialog: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 20px 48px rgba(0, 0, 0, 0.18);
+  --shadow-control: 0 1px 1px rgba(0, 0, 0, 0.04);
+
+  /* Motion. One easing; three durations. Turned off for reduced motion in base.css. */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --fast: 100ms;
+  --med: 160ms;
+  --slow: 240ms;
+
+  /* Layers. */
+  --z-sticky: 10;
+  --z-panel: 30;
+  --z-menu: 50;
+  --z-dialog: 90;
+  --z-toast: 100;
+  --z-tooltip: 120;
+}

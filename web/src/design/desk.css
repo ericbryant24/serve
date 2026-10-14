@@ -1,0 +1,8 @@
+/* Copied from personal-design-system/desk by scripts/sync. Edit it there. */
+/* Desk: the shared look for serve and threads. Import this once, first,
+   then the app's own layout rules. doc.css is separate because serve also
+   uses it alone for exported pages. */
+
+@import './tokens.css';
+@import './base.css';
+@import './components.css';

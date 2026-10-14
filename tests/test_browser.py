@@ -72,7 +72,7 @@ def test_select_and_comment_then_agent_reply_arrives_live(wide, daemon, docs, cl
     cli.run("reply", spec, tid, "Changed to four.", SERVE_AUTHOR="Claude")
     expect(card).to_contain_text("Changed to four.")
     expect(card).to_contain_text("Claude")
-    expect(card.locator(".badge")).to_have_text("Your turn")
+    expect(card.locator(".status.attn")).to_have_text("Your turn")
 
 
 def test_reply_box_stays_open_and_threads_are_flat(wide, daemon, docs, cli):
@@ -343,13 +343,13 @@ def test_file_tree_can_start_at_a_folder_inside_the_opened_one(wide, daemon, doc
     assert [f["path"] for f in daemon.ok("GET", "home")["folders"]] == [str(docs)]
 
 
-def test_dark_theme_and_help(wide, daemon, docs):
+def test_light_only_and_help(wide, daemon, docs):
     open_doc(wide, daemon, docs / "spec.md")
     wide.locator("button[aria-label='View options']").click()
-    wide.locator(".view-menu button", has_text="Dark").click()
-    assert wide.evaluate("() => document.documentElement.dataset.theme") == "dark"
+    expect(wide.locator(".view-menu")).to_be_visible()
+    expect(wide.locator(".view-menu button", has_text="Dark")).to_have_count(0)
     bg = wide.evaluate("() => getComputedStyle(document.body).backgroundColor")
-    assert bg == "rgb(13, 17, 23)"
+    assert bg == "rgb(255, 255, 255)"
     wide.keyboard.press("Escape")
     wide.keyboard.press("?")
     expect(wide.locator(".modal.help")).to_contain_text("Next comment")

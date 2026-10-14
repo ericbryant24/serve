@@ -18,24 +18,16 @@ function load(): Promise<any> {
   return loading;
 }
 
-function dark(): boolean {
-  const t = document.documentElement.getAttribute('data-theme');
-  if (t === 'dark') return true;
-  if (t === 'light') return false;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
-
-let initialisedDark: boolean | null = null;
+let initialised = false;
 
 export async function renderDiagrams(root: ParentNode) {
   const nodes = Array.from(root.querySelectorAll('pre.mermaid:not([data-processed])')) as HTMLElement[];
   if (!nodes.length) return;
   try {
     const m = await load();
-    const d = dark();
-    if (initialisedDark !== d) {
-      m.initialize({ startOnLoad: false, theme: d ? 'dark' : 'default', securityLevel: 'strict' });
-      initialisedDark = d;
+    if (!initialised) {
+      m.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict' });
+      initialised = true;
     }
     for (const n of nodes) {
       if (!n.dataset.source) n.dataset.source = n.textContent || '';
@@ -44,17 +36,4 @@ export async function renderDiagrams(root: ParentNode) {
   } catch (e) {
     console.warn(e);
   }
-}
-
-// rerenderDiagrams redraws every diagram, for a theme change.
-export async function rerenderDiagrams(root: ParentNode) {
-  root.querySelectorAll('pre.mermaid[data-processed]').forEach((n) => {
-    const el = n as HTMLElement;
-    if (el.dataset.source !== undefined) {
-      el.removeAttribute('data-processed');
-      el.textContent = el.dataset.source;
-    }
-  });
-  initialisedDark = null;
-  await renderDiagrams(root);
 }

@@ -3,6 +3,8 @@
 // every file under the folder.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { Icon } from '../design/icons';
+import serveMark from '../design/marks/serve.svg';
 import { Docs } from '../api';
 import { useStore, setState } from '../state';
 import { onLive, clientId } from '../live';
@@ -75,12 +77,11 @@ async function load(dir: string, force = false): Promise<Entry[]> {
 }
 
 function icon(e: Entry): string {
-  if (e.dir) return '';
+  if (e.dir) return 'folder';
   const ext = e.name.split('.').pop()?.toLowerCase() || '';
-  if (['md', 'markdown'].includes(ext)) return 'md';
-  if (['html', 'htm'].includes(ext)) return 'html';
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'img';
-  if (ext === 'pdf') return 'pdf';
+  if (['md', 'markdown'].includes(ext)) return 'file-text';
+  if (['html', 'htm'].includes(ext)) return 'code';
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'image';
   return 'file';
 }
 
@@ -106,8 +107,9 @@ function Node({ e, depth, current, expanded, toggle, onMenu }: { e: Entry; depth
   return (
     <li>
       {e.dir ? (
-        <button type="button" class={'tree-row dir' + (open ? ' open' : '')} style={{ paddingLeft: 10 + depth * 14 + 'px' }} onClick={() => toggle(e.path)} onContextMenu={ctx} aria-expanded={open}>
-          <span class="chev" aria-hidden="true" />
+        <button type="button" class={'tree-row dir' + (open ? ' open' : '')} style={{ paddingLeft: 8 + depth * 16 + 'px' }} onClick={() => toggle(e.path)} onContextMenu={ctx} aria-expanded={open}>
+          <Icon name="right" size={12} class="chev" />
+          <Icon name="folder" />
           <span class="tree-name">{e.name}</span>
           {!!e.threads && <span class="count">{e.threads}</span>}
         </button>
@@ -115,7 +117,7 @@ function Node({ e, depth, current, expanded, toggle, onMenu }: { e: Entry; depth
         <a
           class={'tree-row file' + (isCurrent ? ' current' : '')}
           href={e.url}
-          style={{ paddingLeft: 24 + depth * 14 + 'px' }}
+          style={{ paddingLeft: 26 + depth * 16 + 'px' }}
           aria-current={isCurrent ? 'page' : undefined}
           draggable
           onDragStart={(ev) => {
@@ -128,7 +130,7 @@ function Node({ e, depth, current, expanded, toggle, onMenu }: { e: Entry; depth
           }}
           onContextMenu={ctx}
         >
-          <span class={'ficon ficon-' + icon(e)} aria-hidden="true" />
+          <Icon name={icon(e)} />
           <span class="tree-name">{e.name}</span>
           {!!e.threads && <span class="count">{e.threads}</span>}
         </a>
@@ -138,7 +140,7 @@ function Node({ e, depth, current, expanded, toggle, onMenu }: { e: Entry; depth
           {kids.map((k) => (
             <Node key={k.path} e={k} depth={depth + 1} current={current} expanded={expanded} toggle={toggle} onMenu={onMenu} />
           ))}
-          {!kids.length && <li class="tree-empty" style={{ paddingLeft: 24 + (depth + 1) * 14 + 'px' }}>Empty</li>}
+          {!kids.length && <li class="tree-empty" style={{ paddingLeft: 26 + (depth + 1) * 16 + 'px' }}>Empty</li>}
         </ul>
       )}
     </li>
@@ -265,19 +267,21 @@ export function Sidebar() {
 
   return (
     <nav class="sidebar" aria-label="Files">
-      <div class="sidebar-head">
-        <button type="button" class="icon ghost" title={upLabel} aria-label={upLabel} onClick={goUp}>
-          ↑
-        </button>
+      <div class="sidebar-head col-head">
+        <a class="appmark" href="/" title="Start page" aria-label="Start page" dangerouslySetInnerHTML={{ __html: serveMark }} />
         <a class="sidebar-root" href={root.url} title={root.display}>
           {root.name}
         </a>
+        <button type="button" class="icon" title={upLabel} aria-label={upLabel} onClick={goUp}>
+          <Icon name="folder-up" />
+        </button>
       </div>
-      <div class="filter">
+      <label class="filter search">
+        <Icon name="search" size={14} />
         <input
           ref={input}
           type="search"
-          placeholder="Find a file  /"
+          placeholder="Find a file"
           value={query}
           onInput={(e) => {
             const q = (e.target as HTMLInputElement).value;
@@ -300,14 +304,15 @@ export function Sidebar() {
             }
           }}
         />
-      </div>
+        {!query && <kbd>/</kbd>}
+      </label>
       <div class="tree" ref={treeRef}>
         {results ? (
           <ul class="results">
             {results.map((r, i) => (
               <li key={r.path}>
                 <a class={'tree-row file' + (i === sel ? ' selected' : '') + (r.path === current ? ' current' : '')} href={r.url}>
-                  <span class={'ficon ficon-' + icon(r)} aria-hidden="true" />
+                  <Icon name={icon(r)} />
                   <span class="tree-name">{r.name}</span>
                   {!!r.threads && <span class="count">{r.threads}</span>}
                 </a>
