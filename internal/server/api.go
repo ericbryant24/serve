@@ -37,6 +37,8 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /_serve/api/search", guest(s.apiSearch))
 	mux.HandleFunc("GET /_serve/api/changes", guest(s.apiChanges))
 	mux.HandleFunc("POST /_serve/api/preview", guest(s.apiPreview))
+	mux.HandleFunc("POST /_serve/api/live", guest(s.apiLiveSubscribe))
+	mux.HandleFunc("DELETE /_serve/api/live", guest(s.apiLiveUnsubscribe))
 
 	mux.HandleFunc("GET /_serve/api/home", owner(s.apiHome))
 	mux.HandleFunc("GET /_serve/api/file", owner(s.apiGetFile))

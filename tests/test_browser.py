@@ -75,6 +75,37 @@ def test_select_and_comment_then_agent_reply_arrives_live(wide, daemon, docs, cl
     expect(card.locator(".status.attn")).to_have_text("Your turn")
 
 
+def test_many_tabs_share_one_connection(wide, daemon, docs, cli):
+    # A browser allows six connections to serve at a time. With a stream per
+    # tab, the seventh tab would never load and no comment would save.
+    spec, other = docs / "spec.md", docs / "notes.md"
+    other.write_text("# Notes\n\nSomething else.\n")
+    tabs = []
+    for _ in range(8):
+        tab = wide.context.new_page()
+        open_doc(tab, daemon, other)
+        tabs.append(tab)
+    open_doc(wide, daemon, spec)
+    select(wide, "up to three times")
+    wide.keyboard.press("c")
+    post(wide, "Why three?")
+    expect(wide.locator(".margin .thread")).to_contain_text("Why three?")
+    tid = cli.json("comments", spec)["threads"][0]["id"]
+    cli.run("reply", spec, tid, "Changed to four.", SERVE_AUTHOR="Claude")
+    expect(wide.locator(".margin .thread")).to_contain_text("Changed to four.")
+    # Each tab hears about its own document only, and a closed tab lets go.
+    expect(tabs[0].locator(".margin .thread")).to_have_count(0)
+    status = daemon.ok("GET", "status")
+    assert status["tabs"] == 9
+    for tab in tabs:
+        tab.close()
+    for _ in range(50):
+        if daemon.ok("GET", "status")["tabs"] == 1:
+            break
+        time.sleep(0.1)
+    assert daemon.ok("GET", "status")["tabs"] == 1
+
+
 def test_reply_box_stays_open_and_threads_are_flat(wide, daemon, docs, cli):
     spec = docs / "spec.md"
     daemon.ok("POST", "threads", {"path": str(spec), "scope": "text", "text": "first", "selection": leaf_selection(daemon, spec, "ACH payments")})

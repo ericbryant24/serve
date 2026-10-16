@@ -35,8 +35,9 @@ func run() error {
 			JSXImportSource: "preact",
 		},
 		{
-			// The script that runs inside an HTML page's iframe: one plain file.
-			EntryPoints: []string{"src/embed.ts"},
+			// The script that runs inside an HTML page's iframe, and the shared
+			// worker that holds the tabs' one event stream: plain files.
+			EntryPoints: []string{"src/embed.ts", "src/live-worker.ts"},
 			Format:      api.FormatIIFE,
 		},
 		{

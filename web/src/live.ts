@@ -1,8 +1,10 @@
-// The live connection: one event stream per tab, subscribed to the document
-// it shows. The browser reconnects by itself; the server then says "resync"
-// and the page fetches everything again.
+// The live connection. A browser allows six connections to one server at a
+// time and each tab's event stream holds one open, so tabs share a stream
+// through a shared worker (live-worker.ts), which passes each tab the events
+// for the document it shows. A browser without shared workers opens a stream
+// per tab. Either way, after a reconnect the page fetches everything again.
 
-import { eventsURL, Docs, Threads } from './api';
+import { eventsURL, token, Docs, Threads } from './api';
 import { getState, setState } from './state';
 import type { Thread } from './types';
 
@@ -32,42 +34,112 @@ export function onLive(h: Handlers) {
 
 export function connect() {
   const s = getState();
+  const sub: { path?: string; home?: boolean } = {};
+  if (s.page.view === 'doc' && s.page.path) sub.path = s.page.path;
+  if (s.page.view === 'home') sub.home = true;
+  let worker: SharedWorker;
+  try {
+    worker = new SharedWorker('/_serve/assets/live-worker.js?v=' + s.page.assets, { name: 'serve-live' });
+  } catch {
+    connectAlone(sub);
+    return;
+  }
+  let heard = false;
+  // A worker that cannot start (an older serve without one) leaves the tab
+  // on a stream of its own.
+  worker.onerror = () => {
+    if (!heard) connectAlone(sub);
+    heard = true;
+  };
+  const port = worker.port;
+  const hello = (type: 'hello' | 'pong', again = false) =>
+    port.postMessage({ type, client: clientId, token, url: eventsURL({ shared: '1' }), sub, again });
+  port.onmessage = (m) => {
+    const d = m.data;
+    heard = true;
+    switch (d.type) {
+      case 'hello':
+        checkAssets(d.hello);
+        break;
+      case 'ready':
+        setState({ connected: true });
+        if (d.resync) resync();
+        break;
+      case 'down':
+        setState({ connected: false });
+        break;
+      case 'ping':
+        hello('pong');
+        break;
+      case 'event':
+        dispatch(d.event, d.data);
+        break;
+    }
+  };
+  port.start();
+  hello('hello');
+  addEventListener('pagehide', () => port.postMessage({ type: 'bye', client: clientId }));
+  addEventListener('pageshow', (e) => {
+    if (e.persisted) hello('hello', true);
+  });
+}
+
+// connectAlone opens a stream for this tab only.
+function connectAlone(sub: { path?: string; home?: boolean }) {
   const params: Record<string, string> = { client: clientId };
-  if (s.page.view === 'doc' && s.page.path) params.path = s.page.path;
-  if (s.page.view === 'home') params.home = '1';
+  if (sub.path) params.path = sub.path;
+  if (sub.home) params.home = '1';
   const es = new EventSource(eventsURL(params));
   let first = true;
   es.addEventListener('hello', (ev) => {
-    const d = JSON.parse((ev as MessageEvent).data);
-    if (d.assets && d.assets !== getState().page.assets) {
-      // serve was upgraded; this page's script is out of date.
-      location.reload();
-      return;
-    }
+    if (!checkAssets(JSON.parse((ev as MessageEvent).data))) return;
     if (!first) resync();
     first = false;
     setState({ connected: true });
   });
-  es.addEventListener('doc', (ev) => {
-    // Views without a handler of their own (images, PDFs) fetch the document again.
-    if (handlers.onDoc) handlers.onDoc(JSON.parse((ev as MessageEvent).data));
-    else resync();
-  });
-  // A file the document loads (an image, a stylesheet) changed.
-  es.addEventListener('asset', (ev) => handlers.onAsset?.(JSON.parse((ev as MessageEvent).data).url));
-  es.addEventListener('threads', (ev) => {
-    const d = JSON.parse((ev as MessageEvent).data);
-    if (d.rev && d.rev !== getState().rev) {
-      // The file changed too; the doc event (or a resync) brings both.
-      return;
-    }
-    setState({ threads: d.threads });
-  });
-  es.addEventListener('gone', () => setState({ gone: true }));
-  es.addEventListener('tree', (ev) => handlers.onTree?.(JSON.parse((ev as MessageEvent).data).dir));
-  es.addEventListener('counts', () => handlers.onCounts?.());
-  es.addEventListener('resync', () => resync());
+  for (const name of ['doc', 'asset', 'threads', 'gone', 'tree', 'counts', 'resync']) {
+    es.addEventListener(name, (ev) => dispatch(name, JSON.parse((ev as MessageEvent).data)));
+  }
   es.onerror = () => setState({ connected: false });
+}
+
+// checkAssets reloads the page when serve was upgraded under it.
+function checkAssets(hello: { assets?: string }): boolean {
+  if (hello.assets && hello.assets !== getState().page.assets) {
+    location.reload();
+    return false;
+  }
+  return true;
+}
+
+function dispatch(event: string, d: any) {
+  switch (event) {
+    case 'doc':
+      // Views without a handler of their own (images, PDFs) fetch the document again.
+      if (handlers.onDoc) handlers.onDoc(d);
+      else resync();
+      break;
+    case 'asset':
+      // A file the document loads (an image, a stylesheet) changed.
+      handlers.onAsset?.(d.url);
+      break;
+    case 'threads':
+      // When the file changed too, the doc event (or a resync) brings both.
+      if (!d.rev || d.rev === getState().rev) setState({ threads: d.threads });
+      break;
+    case 'gone':
+      setState({ gone: true });
+      break;
+    case 'tree':
+      handlers.onTree?.(d.dir);
+      break;
+    case 'counts':
+      handlers.onCounts?.();
+      break;
+    case 'resync':
+      resync();
+      break;
+  }
 }
 
 export async function resync() {

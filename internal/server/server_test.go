@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"serve/internal/comments"
 	"serve/internal/config"
@@ -356,5 +358,76 @@ func TestEventStreamSendsThreadsWhenAnotherProcessReplies(t *testing.T) {
 	}
 	if !strings.Contains(got, "event: threads") || !strings.Contains(got, "agent reply") {
 		t.Fatalf("no threads event: %s", got)
+	}
+}
+
+func TestSharedStreamCarriesEachTabsEvents(t *testing.T) {
+	e := setup(t)
+	th := e.api("POST", "threads", map[string]any{"path": e.doc, "scope": "page", "text": "hello"})
+	srv := httptest.NewServer(e.app)
+	defer srv.Close()
+	ctx := t.Context()
+	go e.s.pollStore(ctx)
+	rq, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/_serve/events?shared=1&token="+e.s.Token(), nil)
+	rq.Host = "localhost:7070"
+	resp, err := http.DefaultClient.Do(rq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := make([]byte, 4096)
+	n, _ := resp.Body.Read(buf)
+	m := regexp.MustCompile(`"stream":"([^"]+)"`).FindSubmatch(buf[:n])
+	if m == nil {
+		t.Fatalf("no stream id in hello: %s", buf[:n])
+	}
+	sid := string(m[1])
+	if w := e.do(e.app, req{method: "POST", path: "/_serve/api/live", body: `{"stream":"nope","client":"tab1"}`}); w.Code != 404 {
+		t.Fatalf("unknown stream: %d", w.Code)
+	}
+	// Two tabs on the one stream: one shows the document, one the start page.
+	e.api("POST", "live", map[string]any{"stream": sid, "client": "tab1", "path": e.doc})
+	e.api("POST", "live", map[string]any{"stream": sid, "client": "tab2", "home": true})
+
+	st2, _ := store.Open(e.s.store.Path)
+	defer st2.Close()
+	st2.Reply(th["id"].(string), store.Author{Kind: store.Agent, Name: "Claude"}, "agent reply", "")
+	stop := time.AfterFunc(5*time.Second, func() { resp.Body.Close() })
+	got := ""
+	for i := 0; i < 20 && !(strings.Contains(got, "agent reply") && strings.Contains(got, `"c":"tab2"`)); i++ {
+		n, err := resp.Body.Read(buf)
+		got += string(buf[:n])
+		if err == io.EOF {
+			break
+		}
+	}
+	if !strings.Contains(got, "event: threads\ndata: {\"c\":\"tab1\",\"d\":{") || !strings.Contains(got, "agent reply") {
+		t.Fatalf("no tagged threads event for tab1: %s", got)
+	}
+	if strings.Contains(got, `event: threads`+"\n"+`data: {"c":"tab2"`) {
+		t.Fatalf("tab2 got the document's threads: %s", got)
+	}
+	if !strings.Contains(got, `event: counts`+"\n"+`data: {"c":"tab2"`) {
+		t.Fatalf("no counts for tab2: %s", got)
+	}
+	stop.Stop()
+
+	e.api("DELETE", "live", map[string]any{"stream": sid, "client": "tab1"})
+	if e.s.hub.get("tab1") != nil {
+		t.Fatal("tab1 still subscribed")
+	}
+	e.s.files.mu.Lock()
+	refs := e.s.files.refs[filepath.Dir(e.doc)]
+	e.s.files.mu.Unlock()
+	if refs != 0 {
+		t.Fatalf("document folder still watched: %d", refs)
+	}
+	// Closing the stream ends the tabs still on it.
+	resp.Body.Close()
+	for i := 0; i < 50 && e.s.hub.get("tab2") != nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if e.s.hub.get("tab2") != nil {
+		t.Fatal("tab2 outlived its stream")
 	}
 }

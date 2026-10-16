@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -21,45 +22,90 @@ import (
 	"serve/internal/render"
 )
 
-// Live updates travel over server-sent events: one stream per open tab,
+// Live updates travel over server-sent events. Each open tab is a client,
 // subscribed to the document it shows. A file change sends only the blocks
 // that changed; a comment change (from the browser, or from an agent's
 // `serve reply` in another process) sends the document's threads.
+//
+// A client's events go out on a stream. A browser allows six connections to
+// one server at a time, and a stream holds one open for good, so the app's
+// tabs share one: a shared worker opens a shared stream (?shared=1), and each
+// tab subscribes to it with POST /_serve/api/live; every event carries the
+// tab's id. A page that opens its own stream (?client=) is its only client.
 
 type sseMsg struct {
 	event string
 	data  []byte
 }
 
+type stream struct {
+	id     string
+	shared bool
+	ch     chan sseMsg
+	done   chan struct{}
+	once   sync.Once
+	// lost is set when a shared stream had to drop an event; every tab on
+	// it then resyncs.
+	lost atomic.Bool
+}
+
+func newStream(shared bool) *stream {
+	n := 64
+	if shared {
+		n = 256
+	}
+	return &stream{id: randToken()[:12], shared: shared, ch: make(chan sseMsg, n), done: make(chan struct{})}
+}
+
+func (st *stream) close() { st.once.Do(func() { close(st.done) }) }
+
+func (st *stream) put(m sseMsg) {
+	select {
+	case st.ch <- m:
+	default:
+		// A stream that has stopped reading gets a resync when it catches up
+		// rather than an unbounded queue.
+		if st.shared {
+			st.lost.Store(true)
+			return
+		}
+		select {
+		case st.ch <- sseMsg{"resync", []byte("{}")}:
+		default:
+		}
+	}
+}
+
 type client struct {
 	id   string
+	out  *stream
 	doc  string // absolute path of the document shown, "" for other pages
 	home bool
 	mu   sync.Mutex
+	// dirs are the folders the tab's file tree shows; nil once the tab has gone.
 	dirs map[string]bool
 	// assets are the files the document loads (images, stylesheets), and
 	// assetDirs the folders watched for them; nil once the tab has gone.
 	assets    map[string]bool
 	assetDirs map[string]bool
-	ch        chan sseMsg
-	done      chan struct{}
 }
 
 type hub struct {
 	mu      sync.Mutex
 	clients map[string]*client
+	streams map[string]*stream
 	seq     int64
 }
 
-func newHub() *hub { return &hub{clients: map[string]*client{}} }
+func newHub() *hub { return &hub{clients: map[string]*client{}, streams: map[string]*stream{}} }
 
-func (h *hub) add(c *client) {
+// add registers a client and returns the one it replaces, if any.
+func (h *hub) add(c *client) *client {
 	h.mu.Lock()
-	if old, ok := h.clients[c.id]; ok {
-		close(old.done)
-	}
+	defer h.mu.Unlock()
+	old := h.clients[c.id]
 	h.clients[c.id] = c
-	h.mu.Unlock()
+	return old
 }
 
 func (h *hub) remove(c *client) {
@@ -76,6 +122,32 @@ func (h *hub) get(id string) *client {
 	return h.clients[id]
 }
 
+func (h *hub) addStream(st *stream) {
+	h.mu.Lock()
+	h.streams[st.id] = st
+	h.mu.Unlock()
+}
+
+func (h *hub) stream(id string) *stream {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.streams[id]
+}
+
+// removeStream forgets a stream and returns the clients still on it.
+func (h *hub) removeStream(st *stream) []*client {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.streams, st.id)
+	var left []*client
+	for _, c := range h.clients {
+		if c.out == st {
+			left = append(left, c)
+		}
+	}
+	return left
+}
+
 func (h *hub) each(f func(*client)) {
 	h.mu.Lock()
 	list := make([]*client, 0, len(h.clients))
@@ -89,13 +161,15 @@ func (h *hub) each(f func(*client)) {
 }
 
 func (h *hub) closeAll() {
-	h.each(func(c *client) {
-		select {
-		case <-c.done:
-		default:
-			close(c.done)
-		}
-	})
+	h.mu.Lock()
+	list := make([]*stream, 0, len(h.streams))
+	for _, st := range h.streams {
+		list = append(list, st)
+	}
+	h.mu.Unlock()
+	for _, st := range list {
+		st.close()
+	}
 }
 
 func (c *client) send(event string, v any) {
@@ -103,16 +177,75 @@ func (c *client) send(event string, v any) {
 	if err != nil {
 		return
 	}
-	select {
-	case c.ch <- sseMsg{event, b}:
-	default:
-		// A tab that has stopped reading gets a resync when it catches up
-		// rather than an unbounded queue.
-		select {
-		case c.ch <- sseMsg{"resync", []byte("{}")}:
-		default:
+	if c.out.shared {
+		b, err = json.Marshal(struct {
+			C string          `json:"c"`
+			D json.RawMessage `json:"d"`
+		}{c.id, b})
+		if err != nil {
+			return
 		}
 	}
+	c.out.put(sseMsg{event, b})
+}
+
+// attach starts a client: it watches the client's document and the files it
+// loads. A client with the same id (a tab that reconnected) is detached.
+func (s *Server) attach(c *client) {
+	if old := s.hub.add(c); old != nil {
+		if old.out.shared {
+			s.detach(old)
+		} else {
+			old.out.close()
+		}
+	}
+	if c.doc != "" {
+		s.files.watch(filepath.Dir(c.doc))
+		if doc, _, err := s.readDoc(c.doc); err == nil {
+			s.trackAssets(c, doc)
+		}
+	}
+}
+
+// detach ends a client and lets go of the folders it watched. Detaching
+// twice is harmless.
+func (s *Server) detach(c *client) {
+	s.hub.remove(c)
+	c.mu.Lock()
+	if c.dirs == nil {
+		c.mu.Unlock()
+		return
+	}
+	dirs, assetDirs := c.dirs, c.assetDirs
+	c.dirs, c.assetDirs = nil, nil
+	c.mu.Unlock()
+	if c.doc != "" {
+		s.files.unwatch(filepath.Dir(c.doc))
+	}
+	for d := range dirs {
+		s.files.unwatch(d)
+	}
+	for d := range assetDirs {
+		s.files.unwatch(d)
+	}
+}
+
+func newClient(id string, out *stream) *client {
+	if id == "" {
+		id = randToken()[:12]
+	}
+	return &client{id: id, out: out, dirs: map[string]bool{}, assetDirs: map[string]bool{}}
+}
+
+// subscribe sets the document a client follows from a request's "path" and
+// "home" values.
+func (s *Server) subscribe(c *client, path string, home bool) {
+	if p, ok := pathFromQuery(path); ok {
+		if _, ok := s.folders.rootFor(p); ok {
+			c.doc = p
+		}
+	}
+	c.home = home
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -126,37 +259,23 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	c := &client{id: q.Get("client"), ch: make(chan sseMsg, 64), done: make(chan struct{}), dirs: map[string]bool{}, assetDirs: map[string]bool{}}
-	if c.id == "" {
-		c.id = randToken()[:12]
-	}
-	if p, ok := pathFromQuery(q.Get("path")); ok {
-		if _, ok := s.folders.rootFor(p); ok {
-			c.doc = p
-		}
-	}
-	c.home = q.Get("home") == "1"
-	s.hub.add(c)
-	defer s.hub.remove(c)
-	if c.doc != "" {
-		s.files.watch(filepath.Dir(c.doc))
-		defer s.files.unwatch(filepath.Dir(c.doc))
-		if doc, _, err := s.readDoc(c.doc); err == nil {
-			s.trackAssets(c, doc)
-		}
-	}
+	st := newStream(q.Get("shared") == "1")
+	s.hub.addStream(st)
 	defer func() {
-		c.mu.Lock()
-		dirs, assetDirs := c.dirs, c.assetDirs
-		c.dirs, c.assetDirs = nil, nil
-		c.mu.Unlock()
-		for d := range dirs {
-			s.files.unwatch(d)
-		}
-		for d := range assetDirs {
-			s.files.unwatch(d)
+		for _, c := range s.hub.removeStream(st) {
+			s.detach(c)
 		}
 	}()
+	hello := map[string]any{"version": s.opt.Version, "assets": s.opt.Assets.Hash()}
+	if st.shared {
+		hello["stream"] = st.id
+	} else {
+		c := newClient(q.Get("client"), st)
+		s.subscribe(c, q.Get("path"), q.Get("home") == "1")
+		s.attach(c)
+		defer s.detach(c)
+		hello["client"] = c.id
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -171,13 +290,14 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		fl.Flush()
 		return err
 	}
-	cursor, _ := s.store.LastSeq()
-	hello, _ := json.Marshal(map[string]any{"version": s.opt.Version, "assets": s.opt.Assets.Hash(), "client": c.id, "cursor": cursor})
-	if err := write(sseMsg{"hello", hello}); err != nil {
+	hello["cursor"], _ = s.store.LastSeq()
+	hb, _ := json.Marshal(hello)
+	if err := write(sseMsg{"hello", hb}); err != nil {
 		return
 	}
-	// A reconnecting tab missed whatever happened while it was away.
-	if r.Header.Get("Last-Event-ID") != "" {
+	// A reconnecting tab missed whatever happened while it was away. (A
+	// shared stream is new each time; its tabs resync when they subscribe.)
+	if !st.shared && r.Header.Get("Last-Event-ID") != "" {
 		_ = write(sseMsg{"resync", []byte("{}")})
 	}
 	ping := time.NewTicker(20 * time.Second)
@@ -186,10 +306,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-c.done:
+		case <-st.done:
 			return
-		case m := <-c.ch:
+		case m := <-st.ch:
 			if write(m) != nil {
+				return
+			}
+			if st.lost.Swap(false) && write(sseMsg{"resync", []byte("{}")}) != nil {
 				return
 			}
 		case <-ping.C:
@@ -199,6 +322,44 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			fl.Flush()
 		}
 	}
+}
+
+type liveReq struct {
+	Stream string `json:"stream"`
+	Client string `json:"client"`
+	Path   string `json:"path"`
+	Home   bool   `json:"home"`
+}
+
+// apiLiveSubscribe adds a tab to a shared stream.
+func (s *Server) apiLiveSubscribe(w http.ResponseWriter, r *http.Request) {
+	var b liveReq
+	if err := decode(r, &b); err != nil || b.Stream == "" || b.Client == "" {
+		writeError(w, 400, "stream and client are required")
+		return
+	}
+	st := s.hub.stream(b.Stream)
+	if st == nil || !st.shared {
+		writeError(w, 404, "no such stream")
+		return
+	}
+	c := newClient(b.Client, st)
+	s.subscribe(c, b.Path, b.Home)
+	s.attach(c)
+	writeJSON(w, 200, map[string]any{"client": c.id})
+}
+
+// apiLiveUnsubscribe takes a closed tab off its shared stream.
+func (s *Server) apiLiveUnsubscribe(w http.ResponseWriter, r *http.Request) {
+	var b liveReq
+	if err := decode(r, &b); err != nil || b.Client == "" {
+		writeError(w, 400, "client is required")
+		return
+	}
+	if c := s.hub.get(b.Client); c != nil && c.out.shared && c.out.id == b.Stream {
+		s.detach(c)
+	}
+	writeJSON(w, 200, map[string]any{})
 }
 
 // watchTreeDir registers a folder a tab's file tree is showing, so the tab
