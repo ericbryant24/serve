@@ -257,10 +257,14 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
     }
   }
 
+  // The page's own controls. Outside comment mode they work as they always do,
+  // with a comment on them or not; that comment opens from the panel instead.
+  const CONTROL = 'a[href], button, input, select, textarea, label, summary, [role="button"]';
+
   function onClick(e: MouseEvent) {
     const m = (e.target as Element | null)?.closest?.('mark.serve-cm, [data-serve-thread]') as HTMLElement | null;
     if (!commenting) {
-      if (m?.dataset.serveThread && !(e.metaKey || e.ctrlKey)) {
+      if (m?.dataset.serveThread && !(e.metaKey || e.ctrlKey) && !(e.target as Element).closest(CONTROL)) {
         e.preventDefault();
         send({ type: 'serve:click', id: m.dataset.serveThread });
       }

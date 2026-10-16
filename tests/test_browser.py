@@ -284,6 +284,36 @@ def test_html_page_runs_in_an_isolated_frame(wide, daemon, docs, cli):
     assert cli.json("comments", page_html)["threads"][0]["anchor_text"] == "$10"
 
 
+def test_a_page_control_with_a_comment_on_it_still_works(wide, daemon, docs, cli):
+    page_html = docs / "controls.html"
+    page_html.write_text(
+        "<!doctype html><html><body><h1>Checkout</h1>"
+        "<a id='next' href='#step2'>Next</a>"
+        "<form onsubmit=\"document.getElementById('o').textContent='sent'; return false\"><button id='send'>Send</button></form>"
+        "<p id='o'></p><p id='step2'>Step two</p></body></html>"
+    )
+    open_doc(wide, daemon, page_html)
+    frame = wide.frame_locator("iframe.frame")
+    for control, note in (("#next", "Call it Continue."), ("#send", "Say what it sends.")):
+        frame.locator("h1").click()  # focus the frame, as a person would
+        frame.locator("body").press("c")
+        expect(wide.locator(".mode-bar")).to_be_visible()
+        frame.locator(control).click()
+        expect(wide.locator(".thread.draft textarea")).to_be_focused()
+        post(wide, note)
+        expect(frame.locator(control + "[data-serve-thread]")).to_have_count(1)
+    wide.keyboard.press("Escape")
+    wide.keyboard.press("Escape")
+    expect(wide.locator(".mode-bar")).to_have_count(0)
+    assert len(cli.json("comments", page_html)["threads"]) == 2
+
+    frame.locator("#send").click()
+    expect(frame.locator("#o")).to_have_text("sent")
+    frame.locator("#next").click()
+    child = [f for f in wide.frames if f != wide.main_frame][0]
+    assert child.evaluate("() => location.hash") == "#step2"
+
+
 def test_editor_saves_and_merges_a_change_on_disk(wide, daemon, docs):
     spec = docs / "spec.md"
     open_doc(wide, daemon, spec)
