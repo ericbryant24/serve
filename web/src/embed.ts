@@ -392,6 +392,9 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
       if (m?.dataset.serveThread && !(e.metaKey || e.ctrlKey) && !(e.target as Element).closest(CONTROL)) {
         e.preventDefault();
         send({ type: 'serve:click', id: m.dataset.serveThread });
+      } else if (!m && active) {
+        // A click anywhere else lets go of the thread in focus, as on a markdown page.
+        send({ type: 'serve:blank' });
       }
       return;
     }

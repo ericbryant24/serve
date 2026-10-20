@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../design/icons';
 import { Images } from '../api';
 import { errorToast } from '../ui';
-import { modKey } from '../util';
 
 const DRAFT_PREFIX = 'serve-draft:';
 
@@ -47,8 +46,9 @@ type Props = {
   inputRef?: (el: HTMLTextAreaElement | null) => void;
 };
 
-// Composer is a text box for a new comment, a reply, or an edit. Ctrl/Cmd+Enter
-// sends; Escape cancels (unsent text is kept as a draft, never thrown away).
+// Composer is a text box for a new comment, a reply, or an edit. Enter sends
+// (Cmd/Ctrl+Enter too) and Shift+Enter starts a new line; Escape cancels
+// (unsent text is kept as a draft, never thrown away).
 // A pasted image is uploaded and goes in as a markdown image, shown below the
 // box until the message is sent.
 export function Composer(p: Props) {
@@ -149,7 +149,8 @@ export function Composer(p: Props) {
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // Not while an input method is composing: there Enter picks the word.
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing) {
       e.preventDefault();
       submit();
     } else if (e.key === 'Escape') {
@@ -196,7 +197,7 @@ export function Composer(p: Props) {
       )}
       {open && (
         <div class="composer-actions">
-          <span class="hint">{modKey}+Enter</span>
+          <span class="hint">Shift+Enter for a new line</span>
           {p.onCancel && (
             <button
               type="button"

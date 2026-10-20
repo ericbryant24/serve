@@ -10,6 +10,7 @@ import { getState, setState } from '../state';
 import { errorToast, withUndo } from '../ui';
 import { scrollToThread } from '../doc/DocView';
 import { frameCommand } from '../doc/FrameView';
+import { afterLayout, scrollPanelTo } from './reveal';
 import { timeAgo, fullDate, clip, plural, kindName, messageText } from '../util';
 import { Composer } from './Composer';
 import type { Thread as T, Message } from '../types';
@@ -33,25 +34,19 @@ function replaceThread(t: T) {
 // its card, the page to its highlight (or, for a thread with none, its card
 // in the margin), and a framed page to its highlight too.
 function revealThread(id: string) {
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      const card = document.querySelector(`.panel [data-thread="${CSS.escape(id)}"]`) as HTMLElement | null;
-      if (card) {
-        const body = card.closest('.col-body') as HTMLElement;
-        const r = card.getBoundingClientRect(), b = body.getBoundingClientRect();
-        if (r.top < b.top || r.bottom > b.bottom) body.scrollTo({ top: body.scrollTop + r.top - b.top - 16, behavior: 'smooth' });
-        if (getState().page.doc?.kind === 'html') frameCommand('focus', id);
-        return;
-      }
-      const slot = document.querySelector(`.margin > .thread-slot[data-thread="${CSS.escape(id)}"]`) as HTMLElement | null;
-      if (!slot) return;
-      if (!slot.classList.contains('unanchored')) return scrollToThread(id);
-      // Cards slide to their place, so aim for where this one is going.
-      const main = slot.closest('.main') as HTMLElement;
-      const y = slot.parentElement!.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop + parseFloat(slot.style.top || '0');
-      main.scrollTo({ top: Math.max(0, y - 16), behavior: 'smooth' });
-    }),
-  );
+  afterLayout(() => {
+    if (scrollPanelTo(id)) {
+      if (getState().page.doc?.kind === 'html') frameCommand('focus', id);
+      return;
+    }
+    const slot = document.querySelector(`.margin > .thread-slot[data-thread="${CSS.escape(id)}"]`) as HTMLElement | null;
+    if (!slot) return;
+    if (!slot.classList.contains('unanchored')) return scrollToThread(id);
+    // Cards slide to their place, so aim for where this one is going.
+    const main = slot.closest('.main') as HTMLElement;
+    const y = slot.parentElement!.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop + parseFloat(slot.style.top || '0');
+    main.scrollTo({ top: Math.max(0, y - 16), behavior: 'smooth' });
+  });
 }
 
 export async function resolveThread(t: T) {

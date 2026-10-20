@@ -77,12 +77,13 @@
   cursor: default; transition: box-shadow var(--med) var(--ease), transform var(--med) var(--ease), opacity var(--med) var(--ease);
 }
 .thread.hovered { box-shadow: inset 0 0 0 1px var(--mark-line); }
-.thread.active { box-shadow: inset 0 0 0 1px var(--line-strong), var(--shadow-pop); transform: translateX(-6px); }
+/* The thread in focus has a yellow edge, like its highlight. */
+.thread.active { box-shadow: inset 0 0 0 2px var(--mark-line), var(--shadow-pop); transform: translateX(-6px); }
 .thread.resolved { opacity: 0.6; background: transparent; box-shadow: inset 0 0 0 1px var(--line); padding: var(--s2) var(--s3); }
 .thread.resolved .thread-head { margin-bottom: 2px; }
 .thread.resolved .quote { box-shadow: inset 2px 0 0 var(--line-strong); }
 .thread.resolved.hovered { opacity: 0.85; }
-.thread.resolved.active { opacity: 1; background: var(--bg); padding: var(--s3) var(--s4); }
+.thread.resolved.active { opacity: 1; background: var(--bg); padding: var(--s3) var(--s4); box-shadow: inset 0 0 0 2px var(--mark-line), var(--shadow-pop); }
 .panel .thread { margin-bottom: var(--s3); }
 .panel .thread.active { transform: none; }
 .thread-head { display: flex; align-items: flex-start; gap: var(--s2); margin-bottom: var(--s3); }

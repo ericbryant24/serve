@@ -6,6 +6,7 @@ import { currentSelection, draftFromSelection, scrollToThread } from './doc/DocV
 import { focusReply, resolveThread } from './threads/Thread';
 import { frameCommand } from './doc/FrameView';
 import { toast } from './ui';
+import { afterLayout, scrollPanelTo } from './threads/reveal';
 import { saveEditor } from './views/Editor';
 
 // startComment is what "c" and the Comment button do: comment on the
@@ -44,6 +45,7 @@ function step(dir: 1 | -1) {
   const next = list[(i + dir + list.length) % list.length];
   setState({ active: next.id, draft: null });
   scrollToThread(next.id);
+  afterLayout(() => scrollPanelTo(next.id));
   if (s.page.doc?.kind === 'html') frameCommand('focus', next.id);
 }
 
@@ -53,7 +55,10 @@ function step(dir: 1 | -1) {
 export function toggleHighlights() {
   const on = !getState().prefs.showHighlights;
   setPrefs({ showHighlights: on });
-  if (!on) toast('Highlights hidden', { action: { label: 'Show', run: () => setPrefs({ showHighlights: true }) } });
+  if (!on) {
+    const text = getState().active ? 'Highlights hidden. Press Esc to hide the selected one too' : 'Highlights hidden';
+    toast(text, { action: { label: 'Show', run: () => setPrefs({ showHighlights: true }) } });
+  }
 }
 
 export function installCommands() {

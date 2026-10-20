@@ -44,11 +44,11 @@ serve only shows folders you have opened. The file tree starts at the widest ope
 
 ![Comment mode in the dark theme: the table cell under the pointer is outlined and labelled](docs/images/comment-mode-dark.png)
 
-Threads sit in the margin beside their highlights. Each has a reply box that stays open, author names (you, or the agent), and **Resolve**. Resolved threads leave the page; **Show resolved comments** in the ⋯ menu brings them back, faded and listed below the open ones, with a dotted underline on their text. Clicking one opens it beside its text, and reopening one brings it back there, in focus, with the page scrolled to it. Deleting and resolving can be undone from the notice that appears.
+Threads sit in the margin beside their highlights. In a comment or reply box, Enter sends and Shift+Enter starts a new line. Each thread has a reply box that stays open, author names (you, or the agent), and **Resolve**. Resolved threads leave the page; **Show resolved comments** in the ⋯ menu brings them back, faded and listed below the open ones, with a dotted underline on their text. Clicking one opens it beside its text, and reopening one brings it back there, in focus, with the page scrolled to it. Deleting and resolving can be undone from the notice that appears.
 
 On an HTML page, threads are in a panel beside the page, and each comment also has a bubble at the end of its text or on its element's corner. Click the bubble to open the thread; it works for a comment on one of the page's buttons or links, where a click on the control does what the page says. An orange dot on a bubble means the agent has replied.
 
-Press `h` (or untick **Show highlights** in the ⋯ menu) to hide the highlights and bubbles while you look at the page; the thread in focus keeps its own. Press `h` again to bring them back.
+Press `h` (or untick **Show highlights** in the ⋯ menu) to hide the highlights and bubbles while you look at the page; the thread in focus keeps its own until you let go of it with `Esc` or a click on an empty part of the page or the comments. Press `h` again to bring them back.
 
 Paste an image, a screenshot say, into any comment or reply box to attach it. It shows below the box until you send, then in the thread; click it to see it full size. The agent gets the image's file from `serve comments`. Pasted images are kept in `~/.serve/images`.
 

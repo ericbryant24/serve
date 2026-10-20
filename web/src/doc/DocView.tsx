@@ -10,6 +10,7 @@ import { mountTops, patchTops, flash } from './patch';
 import { renderDiagrams } from './mermaid';
 import { selectionIn, selectionPayload } from './selection';
 import { onLive, resync } from '../live';
+import { afterLayout, scrollPanelTo } from '../threads/reveal';
 import { kindName, elementLabel } from '../util';
 import type { Draft, SelectionPayload, Segment } from '../types';
 
@@ -323,7 +324,9 @@ export function DocView() {
     if (id) {
       if (m && t.closest('a') && (e.metaKey || e.ctrlKey)) return; // let a modified click follow the link
       e.preventDefault();
-      setState({ active: id });
+      // On a narrow window the thread is in the panel: open it there and bring it into view.
+      setState((s) => ({ active: id, panel: s.panel || s.narrow }));
+      afterLayout(() => scrollPanelTo(id));
       return;
     }
     if (!selectionIn(rootRef.current!) && getState().active) setState({ active: null });

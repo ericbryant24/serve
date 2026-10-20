@@ -55,6 +55,11 @@ export function DraftCard({ draft, path }: { draft: Draft; path: string }) {
   );
 }
 
+// A click on the margin or panel around the cards lets go of the thread in focus.
+function letGo(e: MouseEvent) {
+  if (!(e.target as Element).closest('.thread') && getState().active) setState({ active: null });
+}
+
 export function Margin() {
   const threads = useStore((s) => s.threads);
   const active = useStore((s) => s.active);
@@ -158,7 +163,7 @@ export function Margin() {
   });
 
   return (
-    <aside class="margin" ref={col} aria-label="Comments">
+    <aside class="margin" ref={col} aria-label="Comments" onClick={letGo}>
       {draft && (
         <div class="thread-slot" data-thread="__draft" style={{ opacity: 0 }}>
           <DraftCard draft={draft} path={path} />
@@ -223,7 +228,7 @@ export function Panel({ onPick }: { onPick?: (id: string) => void }) {
           <Icon name="x" />
         </button>
       </div>
-      <div class="col-body">
+      <div class="col-body" onClick={letGo}>
         {draft && <DraftCard draft={draft} path={path} />}
         {open.map(card)}
         {resolved.length > 0 && <div class="panel-divider">Resolved · {resolved.length}</div>}

@@ -343,6 +343,22 @@ def test_pasting_an_image_into_a_comment(wide, daemon, docs, cli):
     assert len(msg["images"]) == 1 and open(msg["images"][0], "rb").read() == image
 
 
+def test_enter_sends_and_shift_enter_starts_a_new_line(wide, daemon, docs, cli):
+    spec = docs / "spec.md"
+    open_doc(wide, daemon, spec)
+    select(wide, "up to three times")
+    wide.keyboard.press("c")
+    box = wide.locator(".thread.draft textarea")
+    expect(box).to_be_focused()
+    wide.keyboard.type("Line one")
+    wide.keyboard.press("Shift+Enter")
+    wide.keyboard.type("Line two")
+    expect(box).to_have_value("Line one\nLine two")
+    wide.keyboard.press("Enter")
+    expect(wide.locator(".margin .thread .message-body")).to_contain_text("Line two")
+    assert cli.json("comments", spec)["threads"][0]["text"] == "Line one\nLine two"
+
+
 def test_code_file_comment(wide, daemon, docs):
     go = docs / "sub" / "main.go"
     open_doc(wide, daemon, go)
@@ -423,15 +439,47 @@ def test_html_comments_have_bubbles_to_click(wide, daemon, docs):
     expect(wide.locator(".panel .thread.active")).to_contain_text("Say what you get.")
     expect(frame.locator("#o")).to_have_text("")
 
-    # h hides the page's highlights and bubbles, all but the thread in focus,
-    # and brings them back.
-    wide.keyboard.press("Escape")
+    # h hides the page's highlights and bubbles, all but the thread in focus;
+    # a click elsewhere on the page lets go of that one too. h brings them back.
     wide.locator("body").press("h")
-    expect(wide.locator(".toast")).to_contain_text("Highlights hidden")
+    expect(wide.locator(".toast")).to_contain_text("Press Esc to hide the selected one too")
+    expect(pin).to_have_count(1)
+    frame.locator("p").first.click()
+    expect(wide.locator(".panel .thread.active")).to_have_count(0)
     expect(pin).to_have_count(0)
     expect(frame.locator(".serve-el")).to_have_count(0)
     wide.locator("body").press("h")
     expect(pin).to_have_count(1)
+
+
+def test_clicking_a_bubble_scrolls_the_panel_to_its_thread(page: Page, daemon, docs):
+    page_html = docs / "page.html"
+    for i in range(8):
+        daemon.ok("POST", "threads", {"path": str(page_html), "scope": "page", "text": f"Page note {i}.\n\nWith a second paragraph to make it taller."})
+    page.set_viewport_size({"width": 1440, "height": 600})
+    open_doc(page, daemon, page_html)
+    frame = page.frame_locator("iframe.frame")
+    frame.locator("h1").click()
+    frame.locator("body").press("c")
+    frame.locator("#buy").click()
+    expect(page.locator(".thread.draft textarea")).to_be_focused()
+    post(page, "Say what you get.")
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    body = page.locator(".panel .col-body")
+    body.evaluate("b => b.scrollTo(0, 0)")
+    card = page.locator(".panel .thread", has_text="Say what you get.")
+    assert card.bounding_box()["y"] > body.bounding_box()["y"] + body.bounding_box()["height"]
+
+    frame.locator(".pin").click()
+    expect(card).to_have_class(re.compile(r"\bactive\b"))
+    page.wait_for_timeout(700)
+    c, b = card.bounding_box(), body.bounding_box()
+    assert b["y"] <= c["y"] < b["y"] + b["height"], (c, b)
+
+    # A click on the panel around the cards lets go of it.
+    body.click(position={"x": 4, "y": 4})
+    expect(page.locator(".panel .thread.active")).to_have_count(0)
 
 
 def test_editor_saves_and_merges_a_change_on_disk(wide, daemon, docs):

@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { getState, setState, useStore, highlightedThreads } from '../state';
 import { dispatch } from '../keys';
 import { onLive } from '../live';
+import { afterLayout, scrollPanelTo } from '../threads/reveal';
 import type { ElementPayload, SelectionPayload } from '../types';
 
 let frame: HTMLIFrameElement | null = null;
@@ -63,7 +64,12 @@ export function FrameView() {
           setState({ commenting: true, draft: null });
           break;
         case 'serve:click':
+          // A highlight or bubble was clicked: open its thread and bring it into view.
           setState({ active: m.id, panel: true, draft: null });
+          afterLayout(() => scrollPanelTo(m.id));
+          break;
+        case 'serve:blank':
+          if (getState().active) setState({ active: null });
           break;
         case 'serve:key':
           dispatch(new KeyboardEvent('keydown', { key: m.key, shiftKey: m.shiftKey }));
