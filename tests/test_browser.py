@@ -404,6 +404,24 @@ def test_file_tree_can_start_at_a_folder_inside_the_opened_one(wide, daemon, doc
     assert [f["path"] for f in daemon.ok("GET", "home")["folders"]] == [str(docs)]
 
 
+def test_file_tree_resizes_from_its_edge(wide, daemon, docs):
+    open_doc(wide, daemon, docs / "spec.md")
+    tree = wide.locator(".sidebar")
+    assert tree.bounding_box()["width"] == 260
+    handle = wide.locator(".sidebar-resize").bounding_box()
+    x, y = handle["x"] + handle["width"] / 2, handle["y"] + 200
+    wide.mouse.move(x, y)
+    wide.mouse.down()
+    wide.mouse.move(x + 120, y, steps=5)
+    wide.mouse.up()
+    assert tree.bounding_box()["width"] == 380
+    # The width holds across pages, and a double-click puts it back.
+    wide.reload()
+    expect(tree).to_have_css("width", "380px")
+    wide.locator(".sidebar-resize").dblclick()
+    expect(tree).to_have_css("width", "260px")
+
+
 def test_light_only_and_help(wide, daemon, docs):
     open_doc(wide, daemon, docs / "spec.md")
     wide.locator("button[aria-label='View options']").click()

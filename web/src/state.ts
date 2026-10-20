@@ -12,6 +12,7 @@ export type Prefs = {
   showResolved: boolean;
   showHighlights: boolean;
   sidebar: boolean;
+  sidebarWidth: number; // px
 };
 
 export type State = {
@@ -36,7 +37,7 @@ export type State = {
 const PREFS_KEY = 'serve-prefs';
 
 function loadPrefs(): Prefs {
-  const d: Prefs = { theme: 'system', width: 'medium', textSize: 100, showResolved: false, showHighlights: true, sidebar: true };
+  const d: Prefs = { theme: 'system', width: 'medium', textSize: 100, showResolved: false, showHighlights: true, sidebar: true, sidebarWidth: 260 };
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (raw) return { ...d, ...JSON.parse(raw) };

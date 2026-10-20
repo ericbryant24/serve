@@ -13,7 +13,7 @@ import { connect } from './live';
 import { Toasts } from './ui';
 import { TopBar } from './shell/TopBar';
 import { Icon } from './design/icons';
-import { Sidebar } from './shell/Sidebar';
+import { Sidebar, sidebarWidth } from './shell/Sidebar';
 import { DocView, refs, relayout, scrollToThread } from './doc/DocView';
 import { FrameView } from './doc/FrameView';
 import { Margin, Panel } from './threads/Margin';
@@ -124,14 +124,14 @@ function App() {
     refs.scroller = scroller.current;
     const measure = () => {
       const s = getState();
-      const avail = innerWidth - (s.page.root && s.prefs.sidebar && !s.page.embedded ? 260 : 0);
+      const avail = innerWidth - (s.page.root && s.prefs.sidebar && !s.page.embedded ? sidebarWidth(s.prefs.sidebarWidth) : 0);
       const n = avail < 1060;
       if (n !== s.narrow) setState({ narrow: n });
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [prefs.sidebar]);
+  }, [prefs.sidebar, prefs.sidebarWidth]);
 
   // A link to a thread (#thread-<id>) opens it.
   useEffect(() => {

@@ -32,7 +32,7 @@ serve                  # the current folder
 
 The first `serve` starts a background server; later ones reuse it and return at once. Every file is at a URL that is its own path, such as `http://localhost:7070/~/Projects/payments/docs/spec.md`, so links and bookmarks keep working across restarts. `http://localhost:7070/` is the start page: threads waiting for your reply, recently commented documents, and the folders you have opened.
 
-serve only shows folders you have opened. The file tree starts at the widest opened folder that holds the file. To start it lower, right-click a folder in the tree and choose **Start the file tree here**; your browser remembers this for files in that folder. The ↑ button above the tree moves it back up, and once it reaches the opened folder, ↑ opens the folder above.
+serve only shows folders you have opened. The file tree starts at the widest opened folder that holds the file. To start it lower, right-click a folder in the tree and choose **Start the file tree here**; your browser remembers this for files in that folder. The ↑ button above the tree moves it back up, and once it reaches the opened folder, ↑ opens the folder above. Drag the tree's right edge to make it wider or narrower; double-click the edge to put it back.
 
 ![The start page: threads waiting for a reply, recent documents, and opened folders](docs/images/start-page.png)
 

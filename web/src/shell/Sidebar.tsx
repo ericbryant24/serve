@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../design/icons';
 import serveMark from '../design/marks/serve.svg';
 import { Docs } from '../api';
-import { useStore, setState } from '../state';
+import { useStore, setState, setPrefs } from '../state';
 import { onLive, clientId } from '../live';
 import { errorToast, toast } from '../ui';
 import { copyText, debounce } from '../util';
@@ -85,6 +85,66 @@ function icon(e: Entry): string {
   return 'file';
 }
 
+// The tree's width is dragged from its right edge and kept in the prefs. A
+// width saved in a wider window is narrowed to fit this one.
+const DEFAULT_WIDTH = 260;
+const MIN_WIDTH = 180;
+
+export function sidebarWidth(w: number): number {
+  const max = Math.max(MIN_WIDTH, Math.min(640, Math.round(innerWidth * 0.6)));
+  return Math.round(Math.min(max, Math.max(MIN_WIDTH, w || DEFAULT_WIDTH)));
+}
+
+// While dragging, only the tree's style changes; the width is saved on release,
+// so the page does not re-render on every move.
+function ResizeHandle({ nav, width }: { nav: { current: HTMLElement | null }; width: number }) {
+  const down = (e: PointerEvent) => {
+    const el = nav.current;
+    if (e.button !== 0 || !el) return;
+    e.preventDefault();
+    const handle = e.currentTarget as HTMLElement;
+    const offset = e.clientX - el.offsetWidth;
+    let w = el.offsetWidth;
+    handle.setPointerCapture(e.pointerId);
+    document.documentElement.classList.add('resizing');
+    const move = (ev: PointerEvent) => {
+      w = sidebarWidth(ev.clientX - offset);
+      el.style.width = w + 'px';
+    };
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      document.documentElement.classList.remove('resizing');
+      setPrefs({ sidebarWidth: w });
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  };
+  const key = (e: KeyboardEvent) => {
+    const step = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+    if (!step) return;
+    e.preventDefault();
+    setPrefs({ sidebarWidth: sidebarWidth(width + step) });
+  };
+  return (
+    <div
+      class="sidebar-resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the file tree"
+      aria-valuenow={width}
+      aria-valuemin={MIN_WIDTH}
+      title="Drag to resize, double-click to reset"
+      tabIndex={0}
+      onPointerDown={down}
+      onDblClick={() => setPrefs({ sidebarWidth: DEFAULT_WIDTH })}
+      onKeyDown={key}
+    />
+  );
+}
+
 type MenuState = { x: number; y: number; e: Entry } | null;
 
 function Node({ e, depth, current, expanded, toggle, onMenu }: { e: Entry; depth: number; current: string; expanded: Expansion; toggle: (p: string) => void; onMenu: (m: MenuState) => void }) {
@@ -149,6 +209,7 @@ function Node({ e, depth, current, expanded, toggle, onMenu }: { e: Entry; depth
 
 export function Sidebar() {
   const page = useStore((s) => s.page);
+  const width = sidebarWidth(useStore((s) => s.prefs.sidebarWidth));
   const opened = page.root;
   const current = page.path || '';
   const [root, setRoot] = useState(() => opened && treeTop(opened, current));
@@ -160,6 +221,7 @@ export function Sidebar() {
   const [sel, setSel] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
   const placed = useRef('');
 
   useEffect(() => {
@@ -266,7 +328,7 @@ export function Sidebar() {
   const upLabel = inside ? 'Show the folder above' : 'Open the folder above';
 
   return (
-    <nav class="sidebar" aria-label="Files">
+    <nav class="sidebar" aria-label="Files" ref={navRef} style={{ width: width + 'px' }}>
       <div class="sidebar-head col-head">
         <a class="appmark" href="/" title="Start page" aria-label="Start page" dangerouslySetInnerHTML={{ __html: serveMark }} />
         <a class="sidebar-root" href={root.url} title={root.display}>
@@ -328,6 +390,7 @@ export function Sidebar() {
           </ul>
         )}
       </div>
+      <ResizeHandle nav={navRef} width={width} />
       {menu && <ContextMenu m={menu} close={() => setMenu(null)} startAt={(e) => startAt({ path: e.path, url: e.url, name: e.name, display: root.display + e.path.slice(root.path.length) })} />}
     </nav>
   );

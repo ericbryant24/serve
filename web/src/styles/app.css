@@ -38,7 +38,14 @@
 
 /* --- the file tree -------------------------------------------------------------------- */
 
-.sidebar { flex: 0 0 260px; width: 260px; display: flex; flex-direction: column; min-height: 0; }
+.sidebar { flex: none; width: 260px; position: relative; display: flex; flex-direction: column; min-height: 0; }
+.sidebar-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; z-index: calc(var(--z-sticky) + 1); cursor: col-resize; touch-action: none; }
+.sidebar-resize::after { content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background var(--fast) var(--ease); }
+.sidebar-resize:hover::after { background: var(--accent); transition-delay: 150ms; }
+.sidebar-resize:focus-visible { outline: none; }
+.sidebar-resize:focus-visible::after, .resizing .sidebar-resize::after { background: var(--accent); transition-delay: 0s; }
+.resizing, .resizing * { cursor: col-resize !important; user-select: none; }
+.resizing iframe { pointer-events: none; }
 .sidebar-head .appmark { width: 20px; height: 20px; }
 .sidebar-root { flex: 1; min-width: 0; color: var(--fg); font-size: var(--text-title); font-weight: var(--weight-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-root:hover { text-decoration: none; }
