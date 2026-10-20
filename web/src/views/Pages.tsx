@@ -6,7 +6,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { useStore } from '../state';
 import { Docs } from '../api';
 import { errorToast } from '../ui';
-import { timeAgo, clip, plural } from '../util';
+import { timeAgo, clip, plural, messageText } from '../util';
 import { onLive } from '../live';
 import type { Entry, HomeData } from '../types';
 
@@ -143,7 +143,7 @@ export function HomeView() {
                   {i.quote && <div class="quote">{clip(i.quote, 100)}</div>}
                   <div class="inbox-last">
                     <span class="who">{i.last.author.name}</span>
-                    <span class="text">{clip(i.last.text, 160)}</span>
+                    <span class="text">{clip(messageText(i.last.text), 160)}</span>
                     <span class="row-age">{timeAgo(i.last.created_at)}</span>
                   </div>
                 </a>

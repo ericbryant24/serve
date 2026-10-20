@@ -1,6 +1,7 @@
 /* Copied from personal-design-system/desk by scripts/sync. Edit it there. */
 /* Desk tokens: every color, size, space, corner, shadow and timing the apps
-   use. Light only. Components read these; apps should not need literals. */
+   use. Light only. Components read these; scripts/lint fails on a raw color,
+   font size, corner or spacing value anywhere else in desk/. */
 
 :root {
   color-scheme: light;
@@ -13,41 +14,67 @@
   --bg-sunken: #f5f5f3;
   --line: #e8e8e5;
   --line-strong: #d6d6d2;
+  /* The edge of a text field: 3:1 on white, so the field reads as a field. */
+  --line-field: #92928d;
 
-  /* Text. fg-3 is the lightest grey that still reads at small sizes (4.5:1);
-     fg-4 is for placeholders and disabled text only. */
+  /* Text. fg-2 and fg-3 both pass 4.5:1 on every surface above, selected
+     rows included; fg-4 is for placeholders and disabled text only. */
   --fg: #1d1d1b;
-  --fg-2: #62625d;
-  --fg-3: #767671;
+  --fg-2: #55554f;
+  --fg-3: #666661;
   --fg-4: #a8a8a2;
 
-  /* Accent: the primary action, selection, focus and on-switches. Also means
-     "done" when a status needs a good color. */
+  /* Text and edges on dark or colored fills (primary, danger, toasts, tips). */
+  --fg-inverse: #ffffff;
+  --fg-inverse-2: rgba(255, 255, 255, 0.7);
+  --hover-inverse: rgba(255, 255, 255, 0.1);
+  --edge-on-fill: rgba(0, 0, 0, 0.08);
+
+  /* Accent: the primary action, selection, focus and on-switches. Nothing
+     else is drawn in the accent family. */
   --accent: #1f7a57;
   --accent-hover: #1a6a4b;
   --accent-pressed: #165b40;
   --accent-text: #176446;
   --accent-tint: #e8f2ed;
+  --accent-underline: rgba(23, 100, 70, 0.35);
   --accent-fg: #ffffff;
   --focus-ring: rgba(31, 122, 87, 0.28);
 
-  /* Attention: something is waiting on you. Nothing else is orange. */
-  --attn: #b35c00;
+  /* Ok: done, succeeded, added. The same green as the accent, kept as its
+     own family so the two meanings never share a token. */
+  --ok: #1f7a57;
+  --ok-text: #176446;
+  --ok-tint: #e8f2ed;
+
+  /* Attention: something is waiting on you. Nothing else is orange. Passes
+     4.5:1 on its own tint. */
+  --attn: #a35300;
   --attn-tint: #fcf0e1;
 
   /* Danger: failed, destructive, errors. */
   --danger: #c0352b;
+  --danger-hover: #a82e25;
   --danger-tint: #fcebe9;
 
-  /* Comment highlights in documents. */
+  /* Comments in documents: yellow while open, paler while still a draft,
+     grey once resolved. */
   --mark: #fdeaa6;
   --mark-strong: #fbdc6e;
   --mark-line: #e2b41f;
-  --mark-resolved: #e8f2ed;
+  --mark-draft: #fef6d8;
+  --mark-resolved: #e5e5e2;
 
   /* Changed text in documents. */
-  --added-tint: #e8f2ed;
+  --added-tint: var(--ok-tint);
   --removed-tint: #fcebe9;
+
+  /* Syntax colors (code files and fenced code). Quiet, readable on white. */
+  --syn-keyword: #9b2f5f;
+  --syn-type: #6a4bb3;
+  --syn-string: #2b6d3a;
+  --syn-number: #8a5a00;
+  --syn-function: #2459a8;
 
   --selection: rgba(31, 122, 87, 0.18);
   --scrim: rgba(29, 29, 27, 0.28);
@@ -71,7 +98,7 @@
   --weight-medium: 500;
   --weight-strong: 600;
 
-  /* Space: a 4px grid. */
+  /* Space: a 4px grid, plus one 6px gap between an icon and its label. */
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
@@ -80,25 +107,40 @@
   --s6: 24px;
   --s8: 32px;
   --s10: 40px;
+  --s16: 64px;
+  --s24: 96px;
+  --gap-icon: 6px;
 
-  /* Sizes. Every column header is --head tall; rows and controls are --control. */
-  --head: 52px;
-  --control: 28px;
+  /* Heights. Every column header is --head tall. Rows, controls and menu
+     items are --control; small buttons --control-sm; chips, palette items
+     and toasts --control-lg. */
   --control-sm: 24px;
+  --control: 28px;
+  --control-lg: 32px;
+  --head: 52px;
+
+  /* Widths. */
   --sidebar-width: 232px;
+  --list-width: 340px;
+  --panel-width: 340px;
   --measure: 68ch;
   --doc-width: 720px;
 
-  /* Corners. */
+  /* Corners. Nested corners step down by the padding between them: a menu
+     (8) with 4px padding holds items at 4. */
+  --r-xs: 2px;
   --r-sm: 4px;
   --r: 6px;
-  --r-lg: 10px;
+  --r-lg: 8px;
+  --r-xl: 12px;
   --r-full: 999px;
 
   /* Borders for things in place, shadows for things that float. */
+  --shadow-control: 0 1px 1px rgba(0, 0, 0, 0.04);
+  --shadow-raised: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.25);
   --shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.12);
   --shadow-dialog: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 20px 48px rgba(0, 0, 0, 0.18);
-  --shadow-control: 0 1px 1px rgba(0, 0, 0, 0.04);
 
   /* Motion. One easing; three durations. Turned off for reduced motion in base.css. */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);

@@ -172,11 +172,11 @@ export function EditorView() {
         <button type="button" class="primary" disabled={!dirty || saving} onClick={() => save()}>
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" class="ghost" onClick={close}>
+        <button type="button" class="plain" onClick={close}>
           Close
         </button>
         {isMd && (
-          <button type="button" class={'ghost' + (split ? ' on' : '')} onClick={() => setSplit(!split)}>
+          <button type="button" class={'plain' + (split ? ' on' : '')} onClick={() => setSplit(!split)}>
             Preview
           </button>
         )}

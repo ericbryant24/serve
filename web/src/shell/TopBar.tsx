@@ -144,7 +144,7 @@ export function TopBar() {
   return (
     <header class="topbar col-head">
       {page.root && (
-        <button type="button" class="icon" title="Toggle the file tree" aria-label="Toggle the file tree" onClick={toggleSidebar}>
+        <button type="button" class="icon-only" title="Toggle the file tree" aria-label="Toggle the file tree" onClick={toggleSidebar}>
           <Icon name="sidebar" />
         </button>
       )}
@@ -170,17 +170,17 @@ export function TopBar() {
       {doc && !editing && (
         <>
           {page.role === 'owner' && threads.some((t) => t.messages.some((m) => m.author.kind === 'human')) && doc.kind === 'markdown' && (
-            <button type="button" class={'ghost' + (changes ? ' on' : '')} onClick={() => setState({ changes: !changes })} title="What changed since your last comment">
+            <button type="button" class={'plain' + (changes ? ' on' : '')} onClick={() => setState({ changes: !changes })} title="What changed since your last comment">
               Changes
             </button>
           )}
           {doc.is_marp && (
-            <a class="button ghost" href={page.url + '?present=1'} target="_blank" rel="noopener">
+            <a class="button plain" href={page.url + '?present=1'} target="_blank" rel="noopener">
               Present
             </a>
           )}
           {doc.editable && page.role === 'owner' && (
-            <button type="button" class="ghost" onClick={() => setState({ editing: true })}>
+            <button type="button" class="plain" onClick={() => setState({ editing: true })}>
               <Icon name="pencil" size={14} />
               Edit
             </button>
@@ -196,7 +196,7 @@ export function TopBar() {
             <Icon name="comment" size={14} /> Comment
           </button>
           {(narrow || framed) && (
-            <button type="button" class={'ghost threads-btn' + (panel ? ' on' : '')} onClick={() => setState({ panel: !panel })} title="Show comments">
+            <button type="button" class={'plain threads-btn' + (panel ? ' on' : '')} onClick={() => setState({ panel: !panel })} title="Show comments">
               {plural(open.length, 'comment')}
               {yours > 0 && <span class="dot attn" title={plural(yours, 'thread') + ' waiting for you'} />}
             </button>
@@ -204,7 +204,7 @@ export function TopBar() {
         </>
       )}
       <div class="menu-wrap">
-        <button type="button" class="icon" aria-label="View options" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+        <button type="button" class="icon-only" aria-label="View options" aria-expanded={menu} onClick={() => setMenu(!menu)}>
           <Icon name="more" />
         </button>
         {menu && <ViewMenu close={() => setMenu(false)} />}

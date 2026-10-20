@@ -19,6 +19,12 @@ export function clip(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
+// messageText is a message's text with each pasted image as "[image]", for
+// one-line summaries.
+export function messageText(s: string): string {
+  return s.replace(/!\[[^\]]*\]\([^)\s]*\)/g, '[image]');
+}
+
 export function debounce<T extends (...a: any[]) => void>(f: T, ms: number): T {
   let t: number | undefined;
   return ((...a: any[]) => {

@@ -46,11 +46,11 @@ export function ModeBar() {
   return (
     <div class="mode-bar" role="status">
       <span>Click a block or select text to comment</span>
-      <button type="button" class="ghost" onClick={commentOnPage}>
+      <button type="button" class="plain" onClick={commentOnPage}>
         Whole page
       </button>
-      <button type="button" class="ghost" onClick={() => setState({ commenting: false })}>
-        Done <kbd>Esc</kbd>
+      <button type="button" class="plain" title="Done (Esc)" onClick={() => setState({ commenting: false })}>
+        Done
       </button>
     </div>
   );
@@ -60,7 +60,7 @@ export function GoneBanner() {
   const gone = useStore((s) => s.gone);
   if (!gone) return null;
   return (
-    <div class="banner warn">
+    <div class="banner attn">
       This file was moved or deleted.{' '}
       <button type="button" class="link" onClick={() => location.reload()}>
         Find it

@@ -3,7 +3,10 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	pngenc "image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -429,5 +432,58 @@ func TestSharedStreamCarriesEachTabsEvents(t *testing.T) {
 	}
 	if e.s.hub.get("tab2") != nil {
 		t.Fatal("tab2 outlived its stream")
+	}
+}
+
+func TestPastedImages(t *testing.T) {
+	e := setup(t)
+	upload := func(data []byte, token, remote string) *httptest.ResponseRecorder {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		fw, _ := mw.CreateFormFile("file", "pasted.png")
+		fw.Write(data)
+		mw.Close()
+		return e.do(e.app, req{method: "POST", path: "/_serve/api/images", body: b.String(), ctype: mw.FormDataContentType(), token: token, remote: remote})
+	}
+	var png bytes.Buffer
+	if err := pngenc.Encode(&png, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	w := upload(png.Bytes(), "", "")
+	if w.Code != 201 {
+		t.Fatalf("upload: %d %s", w.Code, w.Body.String())
+	}
+	var up struct{ URL string }
+	json.Unmarshal(w.Body.Bytes(), &up)
+	if !strings.HasPrefix(up.URL, "/_serve/images/") {
+		t.Fatalf("upload url %q", up.URL)
+	}
+	if w := upload([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), "", ""); w.Code != 415 {
+		t.Fatalf("svg upload: %d, want 415", w.Code)
+	}
+
+	// Served to this machine and to share links, never to anyone else.
+	if w := e.do(e.app, req{path: up.URL, token: "-"}); w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || !bytes.Equal(w.Body.Bytes(), png.Bytes()) {
+		t.Fatalf("local image: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+	remote := "10.0.0.5:4000"
+	if w := e.do(e.app, req{path: up.URL, token: "-", remote: remote}); w.Code != 403 {
+		t.Fatalf("remote image without the share link: %d, want 403", w.Code)
+	}
+	if w := e.do(e.app, req{path: up.URL + "?share=" + e.s.shareToken, token: "-", remote: remote}); w.Code != 200 {
+		t.Fatalf("remote image with the share link: %d", w.Code)
+	}
+	if w := upload(png.Bytes(), e.s.shareToken, remote); w.Code != 201 {
+		t.Fatalf("guest upload: %d", w.Code)
+	}
+	if w := e.do(e.app, req{path: "/_serve/images/..%2fserve.db", token: "-"}); w.Code != 404 {
+		t.Fatalf("a name outside the images folder: %d, want 404", w.Code)
+	}
+
+	// A comment refers to the image with markdown, which the page shows.
+	th := e.api("POST", "threads", map[string]any{"path": e.doc, "scope": "page", "text": "See ![screenshot](" + up.URL + ")"})
+	html := th["messages"].([]any)[0].(map[string]any)["html"].(string)
+	if !strings.Contains(html, `<img src="`+up.URL+`" alt="screenshot"`) {
+		t.Fatalf("message html: %s", html)
 	}
 }

@@ -44,7 +44,9 @@ serve only shows folders you have opened. The file tree starts at the widest ope
 
 ![Comment mode in the dark theme: the table cell under the pointer is outlined and labelled](docs/images/comment-mode-dark.png)
 
-Threads sit in the margin beside their highlights. Each has a reply box that stays open, author names (you, or the agent), and **Resolve**. Resolved threads leave the page; **Show resolved comments** in the ⋯ menu brings them back, faded and listed below the open ones, with a dotted underline on their text. Clicking one opens it beside its text. Deleting and resolving can be undone from the notice that appears.
+Threads sit in the margin beside their highlights. Each has a reply box that stays open, author names (you, or the agent), and **Resolve**. Resolved threads leave the page; **Show resolved comments** in the ⋯ menu brings them back, faded and listed below the open ones, with a dotted underline on their text. Clicking one opens it beside its text, and reopening one brings it back there, in focus, with the page scrolled to it. Deleting and resolving can be undone from the notice that appears.
+
+Paste an image, a screenshot say, into any comment or reply box to attach it. It shows below the box until you send, then in the thread; click it to see it full size. The agent gets the image's file from `serve comments`. Pasted images are kept in `~/.serve/images`.
 
 When the text a comment was made on is rewritten, the comment stays on the new text and shows what it used to say (~~up to three times~~ → up to four times). When the text is deleted, a marker shows where it was.
 
@@ -67,7 +69,7 @@ serve resolve docs/spec.md a1f3 --note "Changed to four retries."
 serve wait docs/spec.md --since 1842 --from human   # block until the next comment
 ```
 
-`serve comments` prints JSON. Each thread's `source_line_start`/`source_line_end` say where its passage is **now**, after every edit since the comment was made, and `location.state` says whether the text is intact (`ok`), rewritten (`changed`, with `current_text`) or gone (`deleted`). `awaiting` is `agent` when the last message is from a person. Ids can be shortened to any unique prefix.
+`serve comments` prints JSON. Each thread's `source_line_start`/`source_line_end` say where its passage is **now**, after every edit since the comment was made, and `location.state` says whether the text is intact (`ok`), rewritten (`changed`, with `current_text`) or gone (`deleted`). `awaiting` is `agent` when the last message is from a person. A message with pasted images lists their files under `images`. Ids can be shortened to any unique prefix.
 
 The listing includes a `cursor`. `serve wait --since <cursor>` returns as soon as anything matching happened after it, including something that arrived before `wait` started, so an agent can list, work, and wait without missing a comment. `serve watch` streams the same events as JSON lines.
 

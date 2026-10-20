@@ -103,7 +103,7 @@ export function ReportDialog() {
             </label>
             <p class="muted small">{shot ? 'A screenshot with all text blanked out was captured.' : shotErr ? 'No screenshot: ' + shotErr : 'Capturing the page…'}</p>
             <div class="modal-actions">
-              <button type="button" class="ghost" onClick={close}>
+              <button type="button" class="plain" onClick={close}>
                 Cancel
               </button>
               <button type="button" class="primary" disabled={!form.title.trim() || busy} onClick={create}>
@@ -133,7 +133,7 @@ export function ReportDialog() {
             {review.secret_count > 0 && <p class="warn">{review.secret_count} item(s) look like credentials. Check them before you send the export.</p>}
             <div class="modal-actions">
               <span class="muted small">Saved in {review.dir}</span>
-              <button type="button" class="ghost" onClick={() => api('POST', `reports/${review.report.id}/reveal`).catch(errorToast)}>
+              <button type="button" class="plain" onClick={() => api('POST', `reports/${review.report.id}/reveal`).catch(errorToast)}>
                 Show folder
               </button>
               <a
@@ -146,7 +146,7 @@ export function ReportDialog() {
               >
                 Export zip
               </a>
-              <button type="button" class="ghost" onClick={close}>
+              <button type="button" class="plain" onClick={close}>
                 Done
               </button>
             </div>

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"serve/internal/comments"
+	"serve/internal/images"
 	"serve/internal/paths"
 	"serve/internal/store"
 )
@@ -102,6 +103,9 @@ func (v *eventView) render(e store.Event) map[string]any {
 	_ = json.Unmarshal(e.Payload, &payload)
 	if payload.Text != "" {
 		out["text"] = payload.Text
+		if imgs := images.Refs(payload.Text); len(imgs) > 0 {
+			out["images"] = imgs
+		}
 	}
 	if t := v.thread(path, e.ThreadID); t != nil {
 		c := toCLI(*t)

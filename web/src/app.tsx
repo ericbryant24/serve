@@ -39,7 +39,7 @@ function FileInfo() {
         <a class="button primary" href={doc.raw + '&dl=1'}>
           Download
         </a>{' '}
-        <a class="button ghost" href={doc.raw} target="_blank" rel="noopener">
+        <a class="button plain" href={doc.raw} target="_blank" rel="noopener">
           Open in a new tab
         </a>
       </p>
@@ -98,11 +98,11 @@ function EmbedBar() {
         <Icon name="comment" size={14} /> Comment
       </button>
       {narrow && (
-        <button type="button" class={'ghost threads-btn' + (panel ? ' on' : '')} onClick={() => setState({ panel: !panel })}>
+        <button type="button" class={'plain threads-btn' + (panel ? ' on' : '')} onClick={() => setState({ panel: !panel })}>
           {open} open
         </button>
       )}
-      <a class="button icon" href={url} target="_blank" rel="noopener" title="Open in serve" aria-label="Open in serve">
+      <a class="button icon-only" href={url} target="_blank" rel="noopener" title="Open in serve" aria-label="Open in serve">
         <Icon name="external" />
       </a>
     </div>
@@ -152,11 +152,11 @@ function App() {
   const style = { '--doc-max': WIDTHS[prefs.width], '--text-scale': prefs.textSize / 100 } as any;
   return (
     <div class={'app view-' + view + (root && prefs.sidebar && !embedded ? ' with-sidebar' : '') + (showPanel ? ' with-panel' : '') + (framed ? ' framed' : '') + (embedded ? ' embedded' : '')} style={style}>
-      <div class="app-body">
+      <div class="shell">
         {root && prefs.sidebar && !embedded && <Sidebar />}
         <div class="main-col">
         {!embedded && <TopBar />}
-        <main class="main" ref={scroller} onScroll={relayout}>
+        <main class="main col-body" ref={scroller} onScroll={relayout}>
           {embedded && view === 'doc' && <EmbedBar />}
           <GoneBanner />
           <RelinkBanner />

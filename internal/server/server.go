@@ -28,6 +28,7 @@ import (
 	"serve/internal/comments"
 	"serve/internal/config"
 	"serve/internal/daemon"
+	"serve/internal/images"
 	"serve/internal/logx"
 	"serve/internal/paths"
 	"serve/internal/reports"
@@ -261,6 +262,7 @@ func (s *Server) AppHandler() http.Handler {
 	mux.HandleFunc("GET /_serve/health", s.handleHealth)
 	mux.HandleFunc("GET /_serve/assets/{name...}", s.handleAsset)
 	mux.HandleFunc("GET /_serve/events", s.handleEvents)
+	mux.HandleFunc("GET /_serve/images/{name}", s.handleImage)
 	s.registerAPI(mux)
 	mux.HandleFunc("GET /{path...}", s.handlePage)
 	return s.guard(mux)
@@ -301,6 +303,28 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	_, _ = w.Write(data)
+}
+
+// handleImage serves an image pasted into a comment, to anyone who may see
+// the page: an <img> sends the share cookie but cannot send the token. The
+// name is a hash of the image, so the file never changes.
+func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
+	if s.pageRole(r) == roleNone {
+		http.Error(w, "not allowed", http.StatusForbidden)
+		return
+	}
+	p, ok := images.Path(r.PathValue("name"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := os.Stat(p); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+	http.ServeFile(w, r, p)
 }
 
 func contentType(name string) string {

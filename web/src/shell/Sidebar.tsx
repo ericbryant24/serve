@@ -334,7 +334,7 @@ export function Sidebar() {
         <a class="sidebar-root" href={root.url} title={root.display}>
           {root.name}
         </a>
-        <button type="button" class="icon" title={upLabel} aria-label={upLabel} onClick={goUp}>
+        <button type="button" class="icon-only" title={upLabel} aria-label={upLabel} onClick={goUp}>
           <Icon name="folder-up" />
         </button>
       </div>

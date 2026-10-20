@@ -8,7 +8,9 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Threads } from '../api';
 import { getState, setState } from '../state';
 import { errorToast, withUndo } from '../ui';
-import { timeAgo, fullDate, clip, plural, kindName } from '../util';
+import { scrollToThread } from '../doc/DocView';
+import { frameCommand } from '../doc/FrameView';
+import { timeAgo, fullDate, clip, plural, kindName, messageText } from '../util';
 import { Composer } from './Composer';
 import type { Thread as T, Message } from '../types';
 
@@ -27,10 +29,38 @@ function replaceThread(t: T) {
   setState((s) => ({ threads: s.threads.some((x) => x.id === t.id) ? s.threads.map((x) => (x.id === t.id ? t : x)) : [...s.threads, t] }));
 }
 
+// revealThread scrolls to a thread once the cards have moved: the panel to
+// its card, the page to its highlight (or, for a thread with none, its card
+// in the margin), and a framed page to its highlight too.
+function revealThread(id: string) {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const card = document.querySelector(`.panel [data-thread="${CSS.escape(id)}"]`) as HTMLElement | null;
+      if (card) {
+        const body = card.closest('.col-body') as HTMLElement;
+        const r = card.getBoundingClientRect(), b = body.getBoundingClientRect();
+        if (r.top < b.top || r.bottom > b.bottom) body.scrollTo({ top: body.scrollTop + r.top - b.top - 16, behavior: 'smooth' });
+        if (getState().page.doc?.kind === 'html') frameCommand('focus', id);
+        return;
+      }
+      const slot = document.querySelector(`.margin > .thread-slot[data-thread="${CSS.escape(id)}"]`) as HTMLElement | null;
+      if (!slot) return;
+      if (!slot.classList.contains('unanchored')) return scrollToThread(id);
+      // Cards slide to their place, so aim for where this one is going.
+      const main = slot.closest('.main') as HTMLElement;
+      const y = slot.parentElement!.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop + parseFloat(slot.style.top || '0');
+      main.scrollTo({ top: Math.max(0, y - 16), behavior: 'smooth' });
+    }),
+  );
+}
+
 export async function resolveThread(t: T) {
   const status = t.status === 'open' ? 'resolved' : 'open';
   const before = getState().threads;
-  setState((s) => ({ threads: s.threads.map((x) => (x.id === t.id ? { ...x, status, awaiting: '' } : x)), active: status === 'resolved' ? null : s.active }));
+  // A reopened thread takes focus, and the view follows it to its place
+  // among the open ones.
+  setState((s) => ({ threads: s.threads.map((x) => (x.id === t.id ? { ...x, status, awaiting: '' } : x)), active: status === 'resolved' ? null : t.id }));
+  if (status === 'open') revealThread(t.id);
   if (status === 'resolved') {
     withUndo(
       'Resolved',
@@ -141,7 +171,7 @@ function MessageView({ t, m, onEdit, editing }: { t: T; m: Message; onEdit: (id:
           </time>
         </Author>
         <div class="menu-wrap">
-          <button type="button" class="icon small" aria-label="Message actions" onClick={(e) => (e.stopPropagation(), setMenu(!menu))}>
+          <button type="button" class="icon-only small" aria-label="Message actions" onClick={(e) => (e.stopPropagation(), setMenu(!menu))}>
             <Icon name="more" size={14} />
           </button>
           {menu && (
@@ -174,7 +204,15 @@ function MessageView({ t, m, onEdit, editing }: { t: T; m: Message; onEdit: (id:
           }}
         />
       ) : (
-        <div class="message-body" dangerouslySetInnerHTML={{ __html: m.html }} />
+        <div
+          class="message-body"
+          dangerouslySetInnerHTML={{ __html: m.html }}
+          onClick={(e) => {
+            // A pasted image opens full size in a new tab.
+            const img = (e.target as Element).closest('img');
+            if (img) window.open(img.src, '_blank', 'noopener');
+          }}
+        />
       )}
     </div>
   );
@@ -214,7 +252,7 @@ export function ThreadCard({ t, active, hovered, compact }: Props) {
           {t.awaiting === 'human' && !resolved && <span class="status attn">Your turn</span>}
           <button
             type="button"
-            class={'icon resolve' + (resolved ? ' on' : '')}
+            class={'icon-only resolve' + (resolved ? ' on' : '')}
             title={resolved ? 'Reopen (e)' : 'Resolve (e)'}
             aria-label={resolved ? 'Reopen' : 'Resolve'}
             onClick={(e) => (e.stopPropagation(), resolveThread(t))}
@@ -225,7 +263,7 @@ export function ThreadCard({ t, active, hovered, compact }: Props) {
       </div>
       {!expanded && resolved ? (
         <div class="thread-summary">
-          {clip(msgs[0]?.text || '', 80)} · {plural(msgs.length, 'message')}
+          {clip(messageText(msgs[0]?.text || ''), 80)} · {plural(msgs.length, 'message')}
         </div>
       ) : (
         <>

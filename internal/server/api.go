@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 
 	"serve/internal/anchor"
 	"serve/internal/comments"
+	"serve/internal/images"
 	"serve/internal/paths"
 	"serve/internal/render"
 	"serve/internal/store"
@@ -33,6 +35,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /_serve/api/threads/{id}", guest(s.apiDeleteThread))
 	mux.HandleFunc("PATCH /_serve/api/messages/{id}", guest(s.apiEditMessage))
 	mux.HandleFunc("DELETE /_serve/api/messages/{id}", guest(s.apiDeleteMessage))
+	mux.HandleFunc("POST /_serve/api/images", guest(s.apiUploadImage))
 	mux.HandleFunc("GET /_serve/api/tree", guest(s.apiTree))
 	mux.HandleFunc("GET /_serve/api/search", guest(s.apiSearch))
 	mux.HandleFunc("GET /_serve/api/changes", guest(s.apiChanges))
@@ -317,6 +320,36 @@ func (s *Server) apiDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true, "thread_deleted": gone})
+}
+
+// apiUploadImage keeps an image pasted into a comment and says where it is
+// served. The comment refers to it with a markdown image.
+func (s *Server) apiUploadImage(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, images.MaxSize+1<<20)
+	f, _, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, 400, "no image in the upload, or it is larger than 10 MB")
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, images.MaxSize+1))
+	if err != nil {
+		writeError(w, 400, "could not read the upload")
+		return
+	}
+	name, err := images.Save(data)
+	switch {
+	case errors.Is(err, images.ErrType):
+		writeError(w, 415, err.Error())
+		return
+	case errors.Is(err, images.ErrSize):
+		writeError(w, 413, err.Error())
+		return
+	case err != nil:
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 201, map[string]string{"name": name, "url": images.URLPrefix + name})
 }
 
 func (s *Server) apiTree(w http.ResponseWriter, r *http.Request) {

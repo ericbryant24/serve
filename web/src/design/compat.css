@@ -1,7 +1,7 @@
 /* Copied from personal-design-system/desk by scripts/sync. Edit it there. */
-/* The variable names serve and threads used before Desk, pointed at Desk
-   tokens, so their remaining layout rules pick up the new look. Delete a line
-   once nothing in the app uses that name. */
+/* The variable and class names serve and threads used before Desk, pointed
+   at Desk, so their markup and layout rules pick up the new look. Delete a
+   line once nothing in the app uses that name. */
 
 :root {
   --bg-subtle: var(--bg-sidebar);
@@ -12,8 +12,8 @@
   --border-muted: var(--line);
   --accent-bg: var(--accent-tint);
   --danger-bg: var(--danger-tint);
-  --success: var(--accent-text);
-  --success-bg: var(--accent-tint);
+  --success: var(--ok-text);
+  --success-bg: var(--ok-tint);
   --warn: var(--attn);
   --warn-bg: var(--attn-tint);
   --you: var(--attn);
@@ -23,7 +23,7 @@
   --hl-line: var(--mark-line);
   --hl-active: var(--mark-strong);
   --hl-resolved: var(--mark-resolved);
-  --hl-draft: var(--accent-tint);
+  --hl-draft: var(--mark-draft);
   --changed-bg: var(--added-tint);
   --removed-bg: var(--removed-tint);
   --shadow: var(--shadow-pop);
@@ -32,3 +32,26 @@
   --mono: var(--font-mono);
   --radius: var(--r);
 }
+
+/* Old class names, each written as the current name's rule. Rename the
+   markup to the name in the comment, then delete the rule. */
+
+/* .ghost → .plain */
+:where(button, .button).ghost { background: transparent; box-shadow: none; color: var(--fg-2); }
+:where(button, .button).ghost:not(.icon-only, .icon) { padding: 0 var(--s2); }
+:where(button, .button).ghost:hover { background: var(--bg-hover); color: var(--fg); }
+:where(button, .button).ghost.on { background: var(--bg-selected); color: var(--fg); }
+
+/* button.icon → .icon-only */
+:where(button, .button).icon { width: var(--control); padding: 0; background: transparent; box-shadow: none; color: var(--fg-2); }
+:where(button, .button).icon:hover { background: var(--bg-hover); color: var(--fg); }
+:where(button, .button).icon.on { background: var(--bg-selected); color: var(--fg); }
+:where(button, .button).icon :where(svg.icon) { width: 16px; height: 16px; }
+:where(button, .button).small.icon { width: var(--control-sm); }
+
+/* .note.bad → .note.danger, .note.good → .note.ok, .banner.warn → .banner.attn */
+.note.bad { background: var(--danger-tint); color: var(--fg); }
+.note.bad > .icon { color: var(--danger); }
+.note.good { background: var(--ok-tint); color: var(--fg); }
+.note.good > .icon { color: var(--ok-text); }
+.banner.warn { background: var(--attn-tint); }

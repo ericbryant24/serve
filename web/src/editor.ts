@@ -21,8 +21,8 @@ export function mountEditor(
 ): EditorHandle {
   const theme = EditorView.theme({
     '&': { height: '100%', fontSize: '13.5px', backgroundColor: 'var(--bg)', color: 'var(--fg)' },
-    '.cm-scroller': { fontFamily: 'var(--mono)', lineHeight: '1.6' },
-    '.cm-gutters': { backgroundColor: 'var(--bg-subtle)', color: 'var(--muted)', borderRight: '1px solid var(--border)' },
+    '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6' },
+    '.cm-gutters': { backgroundColor: 'var(--bg-sidebar)', color: 'var(--fg-2)', borderRight: '1px solid var(--line-strong)' },
     '.cm-activeLine': { backgroundColor: 'var(--bg-hover)' },
     '.cm-activeLineGutter': { backgroundColor: 'var(--bg-hover)' },
     '&.cm-focused': { outline: 'none' },

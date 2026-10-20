@@ -9,6 +9,7 @@ import (
 
 	"serve/internal/anchor"
 	"serve/internal/comments"
+	"serve/internal/images"
 	"serve/internal/paths"
 	"serve/internal/store"
 )
@@ -21,6 +22,7 @@ type cliMessage struct {
 	ID        string       `json:"id"`
 	Author    store.Author `json:"author"`
 	Text      string       `json:"text"`
+	Images    []string     `json:"images,omitempty"` // files of the images pasted into it
 	CreatedAt string       `json:"created_at"`
 	EditedAt  string       `json:"edited_at,omitempty"`
 }
@@ -52,7 +54,7 @@ func toCLI(v comments.ThreadView) cliThread {
 		t.AnchorText = v.Anchor.Display
 	}
 	for _, m := range v.Messages {
-		t.Messages = append(t.Messages, cliMessage{ID: m.ID, Author: m.Author, Text: m.Body, CreatedAt: m.CreatedAt, EditedAt: m.EditedAt})
+		t.Messages = append(t.Messages, cliMessage{ID: m.ID, Author: m.Author, Text: m.Body, Images: images.Refs(m.Body), CreatedAt: m.CreatedAt, EditedAt: m.EditedAt})
 	}
 	if len(t.Messages) > 0 {
 		t.Text = t.Messages[0].Text
@@ -82,6 +84,7 @@ is now, carried through every edit since the comment was made. A thread's
 location.state is "ok" (text intact), "changed" (rewritten; current_text is
 what is there now, anchor_text what was commented on), "deleted" (removed;
 the lines are where it was), "unplaced", or "page" (about the whole file).
+A message with images pasted into it lists their files under "images".
 
 The output includes a cursor: pass it to 'serve wait --since' to be woken by
 anything that happens after this listing, with no gap.
@@ -172,6 +175,9 @@ func printThreadsText(p string, cursor int64, ts []cliThread) {
 		}
 		for _, m := range t.Messages {
 			fmt.Printf("  %s: %s\n", m.Author.Name, oneLine(m.Text, 200))
+			for _, img := range m.Images {
+				fmt.Printf("    image: %s\n", img)
+			}
 		}
 	}
 }

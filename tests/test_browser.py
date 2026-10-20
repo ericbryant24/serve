@@ -290,6 +290,59 @@ def test_resolved_threads_go_below_open_ones(page: Page, daemon, docs):
     expect(page.locator(".panel-divider")).to_have_text("Resolved · 1")
 
 
+def test_reopened_thread_takes_focus_and_the_page_follows_it(wide, daemon, docs):
+    long = docs / "long.md"
+    filler = "\n\n".join(f"Filler paragraph {i}." for i in range(80))
+    long.write_text(f"# Long\n\nThe opening paragraph.\n\n{filler}\n\nThe closing paragraph.\n")
+    top = daemon.ok("POST", "threads", {"path": str(long), "scope": "text", "text": "Top note", "selection": leaf_selection(daemon, long, "opening paragraph")})
+    daemon.ok("POST", "threads", {"path": str(long), "scope": "text", "text": "Bottom note", "selection": leaf_selection(daemon, long, "closing paragraph")})
+    daemon.ok("PATCH", f"threads/{top['id']}", {"status": "resolved"})
+    wide.add_init_script("localStorage.setItem('serve-prefs', JSON.stringify({showResolved: true}))")
+    open_doc(wide, daemon, long)
+
+    # The resolved thread waits below the open one, at the foot of the page.
+    card = wide.locator(".margin .thread", has_text="Top note")
+    card.scroll_into_view_if_needed()
+    wide.wait_for_timeout(300)
+    assert wide.evaluate("() => document.querySelector('.main').scrollTop") > 1000
+    card.locator(".resolve").click()
+
+    # Reopened, it is in focus, back at its highlight, and the page went with it.
+    expect(wide.locator(".margin .thread.active")).to_contain_text("Top note")
+    expect(wide.locator(".margin .thread.active textarea")).to_be_visible()
+    wide.wait_for_function("() => document.querySelector('.main').scrollTop < 400")
+    wide.wait_for_timeout(500)
+    box = card.bounding_box()
+    assert 0 <= box["y"] < 900, box
+
+
+def test_pasting_an_image_into_a_comment(wide, daemon, docs, cli):
+    spec = docs / "spec.md"
+    open_doc(wide, daemon, spec)
+    select(wide, "up to three times")
+    wide.keyboard.press("c")
+    image = png(4, 3)
+    wide.locator(".thread.draft textarea").evaluate(
+        """(el, bytes) => {
+          const dt = new DataTransfer();
+          dt.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+          el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        }""",
+        list(image),
+    )
+    expect(wide.locator(".thread.draft .composer-image img")).to_be_visible()
+    expect(wide.locator(".thread.draft textarea")).to_have_value(re.compile(r"^!\[image\]\(/_serve/images/[0-9a-f]{32}\.png\)\n$"))
+    post(wide, "Like this")
+
+    # The message shows the image, and an agent gets its file.
+    shown = wide.locator(".margin .message-body img")
+    expect(shown).to_be_visible()
+    assert shown.evaluate("img => img.naturalWidth") == 4
+    msg = cli.json("comments", spec)["threads"][0]["messages"][0]
+    assert msg["text"].endswith("Like this")
+    assert len(msg["images"]) == 1 and open(msg["images"][0], "rb").read() == image
+
+
 def test_code_file_comment(wide, daemon, docs):
     go = docs / "sub" / "main.go"
     open_doc(wide, daemon, go)

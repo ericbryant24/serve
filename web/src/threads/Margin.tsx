@@ -216,14 +216,14 @@ export function Panel({ onPick }: { onPick?: (id: string) => void }) {
     </div>
   );
   return (
-    <aside class="panel" aria-label="Comments">
-      <div class="panel-head">
+    <aside class="panel panel-col" aria-label="Comments">
+      <div class="col-head">
         <h2>Comments</h2>
-        <button type="button" class="icon" aria-label="Close" onClick={() => setState({ panel: false })}>
+        <button type="button" class="icon-only" aria-label="Close" onClick={() => setState({ panel: false })}>
           <Icon name="x" />
         </button>
       </div>
-      <div class="panel-body">
+      <div class="col-body">
         {draft && <DraftCard draft={draft} path={path} />}
         {open.map(card)}
         {resolved.length > 0 && <div class="panel-divider">Resolved · {resolved.length}</div>}

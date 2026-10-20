@@ -53,6 +53,7 @@ serve comments <file> --format text        # readable summary
   - `page`: the comment is about the whole document (`scope: "page"`), so there are no lines.
 - `scope: "element"` means the person pointed at a whole block (a heading, a table, a diagram); the lines cover the block and `element.label` describes it.
 - `awaiting: "agent"` means the last message is from the person: it is your turn. `awaiting: "human"` means you have replied and are waiting for them.
+- A message the person pasted images into has `images`: the image files' paths (the text holds them as markdown images). Read the files to see what they showed you. `serve wait` and `serve watch` events carry `images` too.
 - `--all` includes resolved threads.
 
 ## Reply and resolve

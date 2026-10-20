@@ -77,6 +77,15 @@ export const Threads = {
   removeMessage: (id: string) => api<{ ok: boolean; thread_deleted: boolean }>('DELETE', `messages/${id}`),
 };
 
+export const Images = {
+  // upload keeps an image pasted into a comment; the comment refers to it by url.
+  upload: (file: Blob) => {
+    const fd = new FormData();
+    fd.append('file', file, (file as File).name || 'pasted.png');
+    return api<{ name: string; url: string }>('POST', 'images', fd);
+  },
+};
+
 export const Docs = {
   get: (path: string) => api<{ doc: DocData; threads: Thread[]; cursor: number }>('GET', 'doc?path=' + q(path)),
   tree: (path: string, client: string) => api<{ entries: Entry[] }>('GET', `tree?path=${q(path)}&client=${q(client)}`),

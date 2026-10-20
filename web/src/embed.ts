@@ -76,18 +76,21 @@
   }
 
   // --- drawing -------------------------------------------------------------------
+  // Desk's comment colors (--mark-strong, --mark-line, --fg-4, --attn, --accent),
+  // written out because this page can't read Desk's tokens. The yellow is
+  // translucent so text stays readable on a page's own background.
   const style = document.createElement('style');
   style.textContent = `
-mark.serve-cm{background:rgba(255,212,0,.32);color:inherit;border-radius:2px;cursor:pointer;box-shadow:0 1px 0 rgba(212,167,44,.8)}
-mark.serve-cm.serve-active{background:rgba(255,191,0,.6)}
-mark.serve-cm.serve-resolved{background:none;box-shadow:none;text-decoration:underline dotted rgba(46,160,67,.8);text-underline-offset:3px}
-mark.serve-cm.serve-resolved:hover,mark.serve-cm.serve-resolved.serve-active{background:rgba(46,160,67,.16)}
-mark.serve-cm.serve-changed{box-shadow:0 1px 0 rgba(191,135,0,.9);text-decoration:underline dotted rgba(191,135,0,.9)}
-.serve-el{outline:2px solid rgba(212,167,44,.85)!important;outline-offset:2px}
-.serve-el.serve-active{outline-color:#bf8700!important}
+mark.serve-cm{background:rgba(251,220,110,.45);color:inherit;border-radius:2px;cursor:pointer;box-shadow:0 2px 0 #e2b41f}
+mark.serve-cm.serve-active{background:rgba(251,220,110,.85)}
+mark.serve-cm.serve-resolved{background:none;box-shadow:none;text-decoration:underline dotted #a8a8a2;text-underline-offset:3px}
+mark.serve-cm.serve-resolved:hover,mark.serve-cm.serve-resolved.serve-active{background:rgba(128,128,120,.15)}
+mark.serve-cm.serve-changed{text-decoration:underline dotted #e2b41f;text-underline-offset:3px}
+.serve-el{outline:2px solid #e2b41f!important;outline-offset:3px}
+.serve-el.serve-active{outline-color:#a35300!important}
 #${UI_ID}{position:fixed;inset:0;pointer-events:none;z-index:2147483646}
-#${UI_ID} .box{position:fixed;border:2px solid #0969da;background:rgba(9,105,218,.06);border-radius:3px}
-#${UI_ID} .box span{position:absolute;top:-21px;left:-2px;background:#0969da;color:#fff;font:500 11px/1.6 system-ui,sans-serif;padding:0 6px;border-radius:3px;white-space:nowrap}
+#${UI_ID} .box{position:fixed;border:2px solid #1f7a57;background:rgba(31,122,87,.05);border-radius:4px}
+#${UI_ID} .box span{position:absolute;top:-22px;left:-2px;background:#1f7a57;color:#fff;font:500 11.5px/18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;padding:0 8px;border-radius:4px;white-space:nowrap}
 body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
 `;
   document.head.appendChild(style);
