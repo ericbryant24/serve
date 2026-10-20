@@ -4,7 +4,7 @@
 // reports selections and clicks back here by postMessage.
 
 import { useEffect, useRef } from 'preact/hooks';
-import { getState, setState, useStore, visibleThreads } from '../state';
+import { getState, setState, useStore, highlightedThreads } from '../state';
 import { dispatch } from '../keys';
 import { onLive } from '../live';
 import type { ElementPayload, SelectionPayload } from '../types';
@@ -38,7 +38,7 @@ export function FrameView() {
     const s = getState();
     post({
       type: 'serve:threads',
-      threads: s.prefs.showHighlights ? visibleThreads(s) : [],
+      threads: highlightedThreads(s),
       active: s.active,
     });
     post({ type: 'serve:mode', on: s.commenting });

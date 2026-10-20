@@ -82,12 +82,12 @@
   const style = document.createElement('style');
   style.textContent = `
 mark.serve-cm{background:rgba(251,220,110,.45);color:inherit;border-radius:2px;cursor:pointer;box-shadow:0 2px 0 #e2b41f}
-mark.serve-cm.serve-active{background:rgba(251,220,110,.85)}
+mark.serve-cm.serve-active,mark.serve-cm.serve-hover{background:rgba(251,220,110,.85)}
 mark.serve-cm.serve-resolved{background:none;box-shadow:none;text-decoration:underline dotted #a8a8a2;text-underline-offset:3px}
 mark.serve-cm.serve-resolved:hover,mark.serve-cm.serve-resolved.serve-active{background:rgba(128,128,120,.15)}
 mark.serve-cm.serve-changed{text-decoration:underline dotted #e2b41f;text-underline-offset:3px}
 .serve-el{outline:2px solid #e2b41f!important;outline-offset:3px}
-.serve-el.serve-active{outline-color:#a35300!important}
+.serve-el.serve-active,.serve-el.serve-hover{outline-color:#a35300!important}
 #${UI_ID}{position:fixed;inset:0;pointer-events:none;z-index:2147483646}
 #${UI_ID} .box{position:fixed;border:2px solid #1f7a57;background:rgba(31,122,87,.05);border-radius:4px}
 #${UI_ID} .box span{position:absolute;top:-22px;left:-2px;background:#1f7a57;color:#fff;font:500 11.5px/18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;padding:0 8px;border-radius:4px;white-space:nowrap}
@@ -103,6 +103,118 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
   ui.appendChild(box);
   document.body.appendChild(ui);
 
+  // --- bubbles ---------------------------------------------------------------------
+  // A bubble beside each comment, to click for its thread: a highlight alone
+  // is easy to lose, and a comment on one of the page's own controls can't
+  // open from a click on the control. They live in a shadow root, out of reach
+  // of the page's styles, and follow their anchors as the page scrolls and
+  // changes.
+  const pinHost = document.createElement('div');
+  ui.appendChild(pinHost);
+  const pinRoot = pinHost.attachShadow({ mode: 'open' });
+  pinRoot.innerHTML = `<style>
+.pin{all:initial;position:fixed;box-sizing:border-box;width:22px;height:22px;display:grid;place-items:center;border-radius:11px 11px 11px 3px;background:#fdeaa6;color:#1d1d1b;box-shadow:0 0 0 1px rgba(0,0,0,.08),0 2px 6px rgba(0,0,0,.16);cursor:pointer;pointer-events:auto;transition:transform 120ms cubic-bezier(.2,.8,.2,1),background 120ms}
+.pin svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pin:hover,.pin.active{background:#fbdc6e;transform:scale(1.1)}
+.pin.active{box-shadow:0 0 0 2px #a35300,0 2px 6px rgba(0,0,0,.16)}
+.pin.resolved{background:#fff;color:#666661}
+.pin.resolved:hover,.pin.resolved.active{background:#e5e5e2}
+.pin.yours::after{content:'';position:absolute;top:-3px;right:-3px;width:6px;height:6px;border-radius:50%;background:#a35300;border:2px solid #fff}
+.pin:focus-visible{outline:2px solid #1f7a57;outline-offset:2px}
+</style>`;
+  const ICON = '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+  type Pin = { id: string; btn: HTMLButtonElement; marks: HTMLElement[]; el: Element | null };
+  let pins: Pin[] = [];
+
+  function pinTitle(t: any): string {
+    const m = t.messages?.[0];
+    if (!m) return 'Comment';
+    const text = String(m.text || '').replace(/!\[[^\]]*\]\([^)\s]*\)/g, '[image]').replace(/\s+/g, ' ').trim();
+    const more = t.messages.length > 1 ? ` (${t.messages.length - 1} more)` : '';
+    return (m.author?.name || 'Comment') + ': ' + (text.length > 140 ? text.slice(0, 139) + '…' : text) + more;
+  }
+
+  function makePins(anchors: { t: any; marks: HTMLElement[]; el: Element | null }[]) {
+    pinRoot.querySelectorAll('.pin').forEach((b) => b.remove());
+    pins = anchors.map(({ t, marks, el }) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pin' + (t.status === 'resolved' ? ' resolved' : '') + (t.id === active ? ' active' : '') + (t.awaiting === 'human' && t.status !== 'resolved' ? ' yours' : '');
+      btn.title = pinTitle(t);
+      btn.setAttribute('aria-label', 'Comment: ' + btn.title);
+      btn.dataset.id = t.id;
+      btn.innerHTML = ICON;
+      pinRoot.appendChild(btn);
+      return { id: t.id, btn, marks, el };
+    });
+    placePins();
+  }
+
+  // Each bubble sits just above the end of its text, or on its element's top
+  // right corner, held in view while any of the element is. Bubbles that would
+  // overlap move along.
+  function placePins() {
+    const placed: { x: number; y: number }[] = [];
+    const w = document.documentElement.clientWidth;
+    for (const p of pins) {
+      let x: number, y: number;
+      if (p.el) {
+        const r = p.el.getBoundingClientRect();
+        if (!r.width && !r.height) {
+          p.btn.style.display = 'none';
+          continue;
+        }
+        x = r.right - 8;
+        y = Math.max(r.top - 14, Math.min(4, r.bottom - 22));
+      } else {
+        const rects = p.marks.flatMap((m) => Array.from(m.getClientRects())).filter((r) => r.width || r.height);
+        const r = rects[rects.length - 1];
+        if (!r) {
+          p.btn.style.display = 'none';
+          continue;
+        }
+        x = r.right + 1;
+        y = r.top - 16;
+      }
+      x = Math.max(2, Math.min(x, w - 26));
+      while (placed.some((q) => Math.abs(q.x - x) < 22 && Math.abs(q.y - y) < 22)) x += 24;
+      placed.push({ x, y });
+      Object.assign(p.btn.style, { display: '', left: x + 'px', top: y + 'px' });
+    }
+  }
+
+  let pinFrame = 0;
+  const schedulePins = () => {
+    if (!pinFrame && pins.length) pinFrame = requestAnimationFrame(() => ((pinFrame = 0), placePins()));
+  };
+  window.addEventListener('scroll', schedulePins, { capture: true, passive: true });
+  window.addEventListener('resize', schedulePins);
+  window.addEventListener('load', schedulePins, true);
+  new MutationObserver(schedulePins).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  new ResizeObserver(schedulePins).observe(document.documentElement);
+
+  const hoverAnchor = (p: Pin, on: boolean) => {
+    for (const m of p.marks) m.classList.toggle('serve-hover', on);
+    p.el?.classList.toggle('serve-hover', on);
+  };
+  pinRoot.addEventListener('click', (e) => {
+    const b = (e.target as Element).closest('.pin') as HTMLElement | null;
+    if (!b) return;
+    e.preventDefault();
+    e.stopPropagation();
+    send({ type: 'serve:click', id: b.dataset.id });
+  });
+  pinRoot.addEventListener('mouseover', (e) => {
+    const b = (e.target as Element).closest('.pin') as HTMLElement | null;
+    const p = b && pins.find((x) => x.btn === b);
+    if (p) hoverAnchor(p, true);
+  });
+  pinRoot.addEventListener('mouseout', (e) => {
+    const b = (e.target as Element).closest('.pin') as HTMLElement | null;
+    const p = b && pins.find((x) => x.btn === b);
+    if (p) hoverAnchor(p, false);
+  });
+
   function clear() {
     document.querySelectorAll('mark.serve-cm').forEach((m) => {
       const p = m.parentNode!;
@@ -116,7 +228,8 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
     });
   }
 
-  function wrapRange(nodes: TN[], start: number, end: number, cls: string, id: string) {
+  function wrapRange(nodes: TN[], start: number, end: number, cls: string, id: string): HTMLElement[] {
+    const out: HTMLElement[] = [];
     for (const n of nodes) {
       const len = n.node.data.length;
       const ns = n.start, ne = ns + len;
@@ -131,7 +244,9 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
       m.dataset.serveThread = id;
       node.parentNode!.insertBefore(m, node);
       m.appendChild(node);
+      out.push(m);
     }
+    return out;
   }
 
   const squash = (s: string) => s.replace(/\s+/g, '');
@@ -178,6 +293,7 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
     clear();
     const nodes = bodyNodes();
     const text = bodyText(nodes);
+    const anchors: { t: any; marks: HTMLElement[]; el: Element | null }[] = [];
     for (const t of threads) {
       const cls = 'serve-cm' + (t.status === 'resolved' ? ' serve-resolved' : '') + (t.location?.state === 'changed' ? ' serve-changed' : '') + (t.id === active ? ' serve-active' : '');
       if (t.scope === 'element') {
@@ -186,13 +302,18 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
           e.classList.add('serve-el');
           if (t.id === active) e.classList.add('serve-active');
           (e as HTMLElement).dataset.serveThread = t.id;
+          anchors.push({ t, marks: [], el: e });
         }
         continue;
       }
       if (t.scope !== 'text') continue;
       const r = locate(nodes, text, t);
-      if (r) wrapRange(bodyNodes(), r[0], r[1], cls, t.id);
+      if (r) {
+        const marks = wrapRange(bodyNodes(), r[0], r[1], cls, t.id);
+        if (marks.length) anchors.push({ t, marks, el: null });
+      }
     }
+    makePins(anchors);
   }
 
   // --- comment mode ----------------------------------------------------------------
@@ -265,6 +386,7 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
   const CONTROL = 'a[href], button, input, select, textarea, label, summary, [role="button"]';
 
   function onClick(e: MouseEvent) {
+    if ((e.target as Element | null)?.closest?.('#' + UI_ID)) return;
     const m = (e.target as Element | null)?.closest?.('mark.serve-cm, [data-serve-thread]') as HTMLElement | null;
     if (!commenting) {
       if (m?.dataset.serveThread && !(e.metaKey || e.ctrlKey) && !(e.target as Element).closest(CONTROL)) {
@@ -302,7 +424,7 @@ body.serve-commenting, body.serve-commenting *{cursor:crosshair!important}
     const t = e.target as HTMLElement;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (['c', 'Escape', '[', ']', '?', 'r', 'e', 'p'].includes(e.key)) {
+    if (['c', 'Escape', '[', ']', '?', 'r', 'e', 'p', 'h'].includes(e.key)) {
       if (e.key === 'c') {
         const p = currentSelection();
         if (p) {

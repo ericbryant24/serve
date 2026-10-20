@@ -398,6 +398,42 @@ def test_a_page_control_with_a_comment_on_it_still_works(wide, daemon, docs, cli
     assert child.evaluate("() => location.hash") == "#step2"
 
 
+def test_html_comments_have_bubbles_to_click(wide, daemon, docs):
+    page_html = docs / "page.html"
+    open_doc(wide, daemon, page_html)
+    frame = wide.frame_locator("iframe.frame")
+    frame.locator("h1").click()
+    frame.locator("body").press("c")
+    frame.locator("#buy").click()
+    expect(wide.locator(".thread.draft textarea")).to_be_focused()
+    post(wide, "Say what you get.")
+    expect(frame.locator("#buy.serve-el")).to_have_count(1)
+    wide.keyboard.press("Escape")
+    wide.keyboard.press("Escape")
+    wide.locator(".panel .col-head button").click()
+    expect(wide.locator(".panel")).to_have_count(0)
+
+    # A bubble sits on the button's corner; clicking it opens the thread.
+    pin = frame.locator(".pin")
+    expect(pin).to_have_count(1)
+    assert "Say what you get." in pin.get_attribute("title")
+    b, p = frame.locator("#buy").bounding_box(), pin.bounding_box()
+    assert abs((p["x"]) - (b["x"] + b["width"] - 8)) < 4 and abs(p["y"] - (b["y"] - 14)) < 4, (b, p)
+    pin.click()
+    expect(wide.locator(".panel .thread.active")).to_contain_text("Say what you get.")
+    expect(frame.locator("#o")).to_have_text("")
+
+    # h hides the page's highlights and bubbles, all but the thread in focus,
+    # and brings them back.
+    wide.keyboard.press("Escape")
+    wide.locator("body").press("h")
+    expect(wide.locator(".toast")).to_contain_text("Highlights hidden")
+    expect(pin).to_have_count(0)
+    expect(frame.locator(".serve-el")).to_have_count(0)
+    wide.locator("body").press("h")
+    expect(pin).to_have_count(1)
+
+
 def test_editor_saves_and_merges_a_change_on_disk(wide, daemon, docs):
     spec = docs / "spec.md"
     open_doc(wide, daemon, spec)

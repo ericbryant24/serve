@@ -119,3 +119,10 @@ export function useStore<T>(select: (s: State) => T): T {
 export function visibleThreads(s: State): Thread[] {
   return s.threads.filter((t) => t.status === 'open' || s.prefs.showResolved || t.id === s.active);
 }
+
+// Threads whose highlights (and, on HTML pages, bubbles) the page draws. With
+// highlights hidden, the thread in focus still shows where it is.
+export function highlightedThreads(s: State): Thread[] {
+  const vis = visibleThreads(s);
+  return s.prefs.showHighlights ? vis : vis.filter((t) => t.id === s.active);
+}

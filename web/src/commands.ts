@@ -1,10 +1,11 @@
 // The app's keyboard commands, and the actions buttons share with them.
 
 import { register } from './keys';
-import { getState, setState, visibleThreads } from './state';
+import { getState, setState, setPrefs, visibleThreads } from './state';
 import { currentSelection, draftFromSelection, scrollToThread } from './doc/DocView';
 import { focusReply, resolveThread } from './threads/Thread';
 import { frameCommand } from './doc/FrameView';
+import { toast } from './ui';
 import { saveEditor } from './views/Editor';
 
 // startComment is what "c" and the Comment button do: comment on the
@@ -44,6 +45,15 @@ function step(dir: 1 | -1) {
   setState({ active: next.id, draft: null });
   scrollToThread(next.id);
   if (s.page.doc?.kind === 'html') frameCommand('focus', next.id);
+}
+
+// toggleHighlights hides the page's comment highlights (and an HTML page's
+// bubbles), or shows them again. The comments themselves stay in the margin
+// or panel.
+export function toggleHighlights() {
+  const on = !getState().prefs.showHighlights;
+  setPrefs({ showHighlights: on });
+  if (!on) toast('Highlights hidden', { action: { label: 'Show', run: () => setPrefs({ showHighlights: true }) } });
 }
 
 export function installCommands() {
@@ -89,6 +99,7 @@ export function installCommands() {
       resolveThread(t);
     },
   });
+  register({ key: 'h', label: 'Hide or show comment highlights', run: () => (getState().page.doc ? toggleHighlights() : false) });
   register({ key: 'p', label: 'Comment on the whole page', run: () => (getState().page.view === 'doc' ? commentOnPage() : false) });
   register({ key: '/', label: 'Find a file', run: () => void window.dispatchEvent(new Event('serve:filter')) });
   register({ key: '?', label: 'Keyboard shortcuts', run: () => setState((s) => ({ help: !s.help })) });

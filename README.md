@@ -46,6 +46,10 @@ serve only shows folders you have opened. The file tree starts at the widest ope
 
 Threads sit in the margin beside their highlights. Each has a reply box that stays open, author names (you, or the agent), and **Resolve**. Resolved threads leave the page; **Show resolved comments** in the ⋯ menu brings them back, faded and listed below the open ones, with a dotted underline on their text. Clicking one opens it beside its text, and reopening one brings it back there, in focus, with the page scrolled to it. Deleting and resolving can be undone from the notice that appears.
 
+On an HTML page, threads are in a panel beside the page, and each comment also has a bubble at the end of its text or on its element's corner. Click the bubble to open the thread; it works for a comment on one of the page's buttons or links, where a click on the control does what the page says. An orange dot on a bubble means the agent has replied.
+
+Press `h` (or untick **Show highlights** in the ⋯ menu) to hide the highlights and bubbles while you look at the page; the thread in focus keeps its own. Press `h` again to bring them back.
+
 Paste an image, a screenshot say, into any comment or reply box to attach it. It shows below the box until you send, then in the thread; click it to see it full size. The agent gets the image's file from `serve comments`. Pasted images are kept in `~/.serve/images`.
 
 When the text a comment was made on is rewritten, the comment stays on the new text and shows what it used to say (~~up to three times~~ → up to four times). When the text is deleted, a marker shows where it was.
@@ -57,6 +61,7 @@ When the text a comment was made on is rewritten, the comment stays on the new t
 | `r` | Reply to the comment in focus |
 | `e` | Resolve or reopen it |
 | `p` | Comment on the whole page |
+| `h` | Hide or show comment highlights (and bubbles on HTML pages) |
 | `/` | Find a file |
 | `?` | All shortcuts |
 

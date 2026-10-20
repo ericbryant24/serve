@@ -4,7 +4,7 @@
 // and selections into new comments.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { getState, setState, useStore, visibleThreads } from '../state';
+import { getState, setState, useStore, highlightedThreads } from '../state';
 import { applyMarks, anchorElement, leaf } from './highlight';
 import { mountTops, patchTops, flash } from './patch';
 import { renderDiagrams } from './mermaid';
@@ -206,8 +206,7 @@ export function DocView() {
   useLayoutEffect(() => {
     const root = rootRef.current!;
     const s = getState();
-    const shown = prefs.showHighlights ? visibleThreads(s) : [];
-    applyMarks(root, shown, active);
+    applyMarks(root, highlightedThreads(s), active);
     if (draft && draft.kind === 'text') {
       for (const seg of draftSegments(root, draft.selection)) {
         const el = leaf(root, seg.key);

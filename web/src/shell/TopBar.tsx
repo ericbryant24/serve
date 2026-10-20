@@ -83,6 +83,7 @@ function ViewMenu({ close }: { close: () => void }) {
         <>
           <label class="check">
             <input type="checkbox" checked={prefs.showHighlights} onChange={() => setPrefs({ showHighlights: !prefs.showHighlights })} /> Show highlights
+            <kbd>h</kbd>
           </label>
           <label class="check">
             <input type="checkbox" checked={prefs.showResolved} onChange={() => setPrefs({ showResolved: !prefs.showResolved })} /> Show resolved comments
